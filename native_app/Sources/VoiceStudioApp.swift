@@ -1834,8 +1834,8 @@ final class VoiceStudioModel: ObservableObject {
     func configureRuntime() {
         let gptRoot = runtimeGPTSoVITSPath.trimmingCharacters(in: .whitespacesAndNewlines)
         let asrPython = runtimeASRPythonPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !gptRoot.isEmpty else {
-            alertMessage = "请先选择 GPT-SoVITS 根目录。"
+        guard !gptRoot.isEmpty, FileManager.default.fileExists(atPath: gptRoot) else {
+            alertMessage = "请先选择 GPT-SoVITS 根目录（当前路径无效或为占位符）。"
             return
         }
 
@@ -1918,16 +1918,21 @@ final class VoiceStudioModel: ObservableObject {
             loadRuntimeSettingsFromConfig()
         }
 
-        // ── Auto-detect when paths are still empty ──
+        // ── Auto-detect when paths are empty or obvious placeholders ──
         let gptPath = runtimeGPTSoVITSPath.trimmingCharacters(in: .whitespacesAndNewlines)
         let pythonPath = runtimePythonPath.trimmingCharacters(in: .whitespacesAndNewlines)
         let asrPath = runtimeASRPythonPath.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if gptPath.isEmpty || pythonPath.isEmpty || asrPath.isEmpty {
+        // Consider a path "real" only if the file/directory actually exists
+        let gptReal = !gptPath.isEmpty && fm.fileExists(atPath: gptPath)
+        let pythonReal = !pythonPath.isEmpty && fm.fileExists(atPath: pythonPath)
+        let asrReal = !asrPath.isEmpty && fm.fileExists(atPath: asrPath)
+
+        if !gptReal || !pythonReal || !asrReal {
             var didAutoDetect = false
 
             // 1. Auto-detect GPT-SoVITS root
-            if gptPath.isEmpty, let found = findGPTSoVITSRoot() {
+            if !gptReal, let found = findGPTSoVITSRoot() {
                 runtimeGPTSoVITSPath = found.path
                 didAutoDetect = true
                 addLog("自动检测到 GPT-SoVITS：\(found.path)")
@@ -1937,7 +1942,7 @@ final class VoiceStudioModel: ObservableObject {
             let gptRootURL = URL(fileURLWithPath: currentGptRoot)
 
             // 2. Auto-detect Python inside GPT-SoVITS root
-            if pythonPath.isEmpty, !currentGptRoot.isEmpty {
+            if !pythonReal, !currentGptRoot.isEmpty {
                 if let guessed = guessPython(in: gptRootURL) {
                     runtimePythonPath = guessed.path
                     didAutoDetect = true
@@ -1946,7 +1951,7 @@ final class VoiceStudioModel: ObservableObject {
             }
 
             // 3. Auto-detect ASR Python
-            if asrPath.isEmpty, !currentGptRoot.isEmpty {
+            if !asrReal, !currentGptRoot.isEmpty {
                 if let foundASR = findASRPython(nearGPTRoot: gptRootURL) {
                     runtimeASRPythonPath = foundASR.path
                     didAutoDetect = true
