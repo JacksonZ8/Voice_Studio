@@ -20,7 +20,8 @@ struct VoiceInfo {
 
 struct TTSEngineConfig {
     let python: String
-    let runtimeRoot: String
+    let gptSovitsRoot: String       // GPT-SoVITS 安装根目录（包含 GPT_SoVITS/ 子目录）
+    let runtimeRoot: String         // gpt_sovits_runtime/ 工作目录
     let inferenceCLI: String
     let asrPython: String?
 }
@@ -822,7 +823,7 @@ final class VoiceStudioModel: ObservableObject {
         process.arguments = [script.path, "--source", source.path, "--output-dir", separatedURL.path]
         var env = ProcessInfo.processInfo.environment
         env["PYTHONUNBUFFERED"] = "1"
-        env["PYTHONPATH"] = "\(engine.runtimeRoot):\(URL(fileURLWithPath: engine.runtimeRoot).appendingPathComponent("tools/uvr5").path)"
+        env["PYTHONPATH"] = "\(engine.gptSovitsRoot):\(URL(fileURLWithPath: engine.gptSovitsRoot).appendingPathComponent("tools/uvr5").path)"
         env["TEMP"] = root.appendingPathComponent("gpt_sovits_runtime/cache").path
         process.environment = env
 
@@ -1560,7 +1561,7 @@ final class VoiceStudioModel: ObservableObject {
         outputDir: URL,
         cacheDir: URL
     ) -> TTSProcessResult {
-        let runtimeURL = URL(fileURLWithPath: engine.runtimeRoot)
+        let runtimeURL = URL(fileURLWithPath: engine.gptSovitsRoot)
         let pythonURL = URL(fileURLWithPath: engine.python)
         let cliURL = runtimeURL.appendingPathComponent(engine.inferenceCLI)
         let gptModel = voiceInfo.packageRoot.appendingPathComponent(voiceInfo.gptWeight)
@@ -1731,12 +1732,22 @@ final class VoiceStudioModel: ObservableObject {
         let configURL = root.appendingPathComponent("gpt_sovits_runtime/engine_config.json")
         guard let data = try? Data(contentsOf: configURL),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let python = object["python"] as? String,
-              let runtimeRoot = object["runtime_root"] as? String else {
+              let python = object["python"] as? String else {
             return nil
         }
+        // gpt_sovits_root (new key) takes priority; fall back to runtime_root (old behavior)
+        let gptSovitsRoot: String
+        if let explicit = object["gpt_sovits_root"] as? String, !explicit.isEmpty {
+            gptSovitsRoot = explicit
+        } else if let legacy = object["runtime_root"] as? String, !legacy.isEmpty {
+            gptSovitsRoot = legacy
+        } else {
+            return nil
+        }
+        let runtimeRoot = (object["runtime_root"] as? String) ?? root.appendingPathComponent("gpt_sovits_runtime").path
         return TTSEngineConfig(
             python: python,
+            gptSovitsRoot: gptSovitsRoot,
             runtimeRoot: runtimeRoot,
             inferenceCLI: object["inference_cli"] as? String ?? "GPT_SoVITS/inference_cli.py",
             asrPython: object["asr_python"] as? String
@@ -1758,6 +1769,12 @@ final class VoiceStudioModel: ObservableObject {
         if runtimePythonPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            let guessed = guessPython(in: selected) {
             runtimePythonPath = guessed.path
+        }
+        // Also auto-detect ASR Python when selecting GPT-SoVITS root
+        if runtimeASRPythonPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let foundASR = findASRPython(nearGPTRoot: selected) {
+            runtimeASRPythonPath = foundASR.path
+            addLog("自动检测到 ASR Python：\(foundASR.path)")
         }
         detectRuntime()
     }
@@ -1842,7 +1859,8 @@ final class VoiceStudioModel: ObservableObject {
         ensureDirectory(runtimeDir)
         var object: [String: Any] = [
             "python": python,
-            "runtime_root": gptRoot,
+            "gpt_sovits_root": gptRoot,
+            "runtime_root": runtimeDir.path,
             "inference_cli": "GPT_SoVITS/inference_cli.py"
         ]
         if !asrPython.isEmpty {
@@ -1860,6 +1878,29 @@ final class VoiceStudioModel: ObservableObject {
         }
     }
 
+    /// Silently write engine_config.json from current runtime settings (no alerts).
+    private func autoWriteEngineConfig() {
+        let gptRoot = runtimeGPTSoVITSPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let python = runtimePythonPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let asrPython = runtimeASRPythonPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !gptRoot.isEmpty, !python.isEmpty else { return }
+
+        let runtimeDir = root.appendingPathComponent("gpt_sovits_runtime")
+        ensureDirectory(runtimeDir)
+        var object: [String: Any] = [
+            "python": python,
+            "gpt_sovits_root": gptRoot,
+            "runtime_root": runtimeDir.path,
+            "inference_cli": "GPT_SoVITS/inference_cli.py"
+        ]
+        if !asrPython.isEmpty {
+            object["asr_python"] = asrPython
+        }
+        if let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: runtimeDir.appendingPathComponent("engine_config.json"), options: .atomic)
+        }
+    }
+
     func detectRuntime() {
         var items: [RuntimeCheckItem] = []
         let fm = FileManager.default
@@ -1867,6 +1908,53 @@ final class VoiceStudioModel: ObservableObject {
 
         if runtimeGPTSoVITSPath.isEmpty || runtimePythonPath.isEmpty {
             loadRuntimeSettingsFromConfig()
+        }
+
+        // ── Auto-detect when paths are still empty ──
+        let gptPath = runtimeGPTSoVITSPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pythonPath = runtimePythonPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let asrPath = runtimeASRPythonPath.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if gptPath.isEmpty || pythonPath.isEmpty || asrPath.isEmpty {
+            var didAutoDetect = false
+
+            // 1. Auto-detect GPT-SoVITS root
+            if gptPath.isEmpty, let found = findGPTSoVITSRoot() {
+                runtimeGPTSoVITSPath = found.path
+                didAutoDetect = true
+                addLog("自动检测到 GPT-SoVITS：\(found.path)")
+            }
+
+            let currentGptRoot = runtimeGPTSoVITSPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            let gptRootURL = URL(fileURLWithPath: currentGptRoot)
+
+            // 2. Auto-detect Python inside GPT-SoVITS root
+            if pythonPath.isEmpty, !currentGptRoot.isEmpty {
+                if let guessed = guessPython(in: gptRootURL) {
+                    runtimePythonPath = guessed.path
+                    didAutoDetect = true
+                    addLog("自动检测到 Python：\(guessed.path)")
+                }
+            }
+
+            // 3. Auto-detect ASR Python
+            if asrPath.isEmpty, !currentGptRoot.isEmpty {
+                if let foundASR = findASRPython(nearGPTRoot: gptRootURL) {
+                    runtimeASRPythonPath = foundASR.path
+                    didAutoDetect = true
+                    addLog("自动检测到 ASR Python：\(foundASR.path)")
+                }
+            }
+
+            // 4. If we auto-detected enough, write the config
+            if didAutoDetect {
+                let updatedGptRoot = runtimeGPTSoVITSPath.trimmingCharacters(in: .whitespacesAndNewlines)
+                let updatedPython = runtimePythonPath.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !updatedGptRoot.isEmpty, !updatedPython.isEmpty,
+                   fm.fileExists(atPath: URL(fileURLWithPath: updatedGptRoot).appendingPathComponent("GPT_SoVITS/inference_cli.py").path) {
+                    autoWriteEngineConfig()
+                }
+            }
         }
 
         let gptRoot = runtimeGPTSoVITSPath.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1935,7 +2023,7 @@ final class VoiceStudioModel: ObservableObject {
 
     private func loadRuntimeSettingsFromConfig() {
         guard let engine = loadEngineConfig() else { return }
-        runtimeGPTSoVITSPath = engine.runtimeRoot
+        runtimeGPTSoVITSPath = engine.gptSovitsRoot
         runtimePythonPath = engine.python
         runtimeASRPythonPath = engine.asrPython ?? ""
     }
@@ -1985,6 +2073,97 @@ final class VoiceStudioModel: ObservableObject {
             gptRoot.appendingPathComponent("env/bin/python")
         ]
         return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    /// Auto-detect GPT-SoVITS root by searching common locations.
+    /// Returns the first directory that contains `GPT_SoVITS/inference_cli.py`.
+    private func findGPTSoVITSRoot() -> URL? {
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser
+        let projectParent = root.deletingLastPathComponent()
+
+        // Check a single candidate
+        func check(_ url: URL) -> URL? {
+            let cli = url.appendingPathComponent("GPT_SoVITS/inference_cli.py")
+            return fm.fileExists(atPath: cli.path) ? url : nil
+        }
+
+        // Scan parent directories for `*/external/GPT-SoVITS` or `*/GPT-SoVITS`
+        func scanParent(_ parent: URL) -> URL? {
+            guard let children = try? fm.contentsOfDirectory(at: parent, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return nil }
+            for child in children where child.hasDirectoryPath {
+                if let found = check(child.appendingPathComponent("external/GPT-SoVITS")) { return found }
+                if let found = check(child.appendingPathComponent("GPT-SoVITS")) { return found }
+            }
+            return nil
+        }
+
+        // 1. Direct paths (project sibling / home)
+        let directs: [URL] = [
+            projectParent.appendingPathComponent("GPT-SoVITS"),
+            projectParent.appendingPathComponent("external/GPT-SoVITS"),
+            home.appendingPathComponent("GPT-SoVITS"),
+            home.appendingPathComponent("external/GPT-SoVITS"),
+        ]
+        for d in directs { if let found = check(d) { return found } }
+
+        // 2. Scan sibling directories (e.g. TTS_voice_train/external/GPT-SoVITS)
+        if let found = scanParent(projectParent) { return found }
+
+        // 3. Scan one level up
+        let upper = projectParent.deletingLastPathComponent()
+        if let found = scanParent(upper) { return found }
+
+        // 4. Scan Desktop and home
+        let desktop = home.appendingPathComponent("Desktop")
+        if let found = scanParent(desktop) { return found }
+        if let found = scanParent(home) { return found }
+
+        return nil
+    }
+
+    /// Auto-detect ASR Python relative to the GPT-SoVITS root or project.
+    private func findASRPython(nearGPTRoot gptRoot: URL) -> URL? {
+        let fm = FileManager.default
+        let projectParent = root.deletingLastPathComponent()
+
+        // Check a single candidate
+        func check(_ url: URL) -> Bool { fm.fileExists(atPath: url.path) }
+
+        // Scan a directory for `*/training/asr/.venv-asr/bin/python` or `*/.venv-asr/bin/python`
+        func scanParent(_ parent: URL) -> URL? {
+            guard let children = try? fm.contentsOfDirectory(at: parent, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return nil }
+            for child in children where child.hasDirectoryPath {
+                let asrA = child.appendingPathComponent("training/asr/.venv-asr/bin/python")
+                if check(asrA) { return asrA }
+                let asrB = child.appendingPathComponent(".venv-asr/bin/python")
+                if check(asrB) { return asrB }
+                let asrC = child.appendingPathComponent("asr/.venv-asr/bin/python")
+                if check(asrC) { return asrC }
+            }
+            return nil
+        }
+
+        // 1. Relative to GPT-SoVITS root
+        let nearCandidates: [URL] = [
+            gptRoot.appendingPathComponent(".venv-asr/bin/python"),
+            gptRoot.deletingLastPathComponent().appendingPathComponent("training/asr/.venv-asr/bin/python"),
+            gptRoot.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("training/asr/.venv-asr/bin/python"),
+        ]
+        for c in nearCandidates { if check(c) { return c } }
+
+        // 2. Inside project root
+        let inProject: [URL] = [
+            root.appendingPathComponent(".venv-asr/bin/python"),
+            root.appendingPathComponent("asr/.venv-asr/bin/python"),
+        ]
+        for c in inProject { if check(c) { return c } }
+
+        // 3. Scan sibling directories (e.g. TTS_voice_train/training/asr/.venv-asr)
+        if let found = scanParent(projectParent) { return found }
+        if let found = scanParent(projectParent.deletingLastPathComponent()) { return found }
+
+        return nil
     }
 
     private func analyzeAudio(url: URL) throws -> QualityReport {
@@ -2408,7 +2587,10 @@ struct ContentView: View {
         .padding(18)
         .frame(width: 280)
         .panelStyle()
-        .onAppear { model.discoveredProjects = model.discoverProjects() }
+        .onAppear {
+            model.discoveredProjects = model.discoverProjects()
+            model.detectRuntime()  // auto-detect GPT-SoVITS, Python, ASR on launch
+        }
         .sheet(isPresented: $showNewProjectSheet) {
             VStack(spacing: 18) {
                 Text("创建新项目")

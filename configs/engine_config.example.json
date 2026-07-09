@@ -1,6 +1,7 @@
 {
   "python": "/absolute/path/to/GPT-SoVITS/.venv/bin/python",
-  "runtime_root": "/absolute/path/to/Voice_train/gpt_sovits_runtime",
+  "gpt_sovits_root": "/absolute/path/to/GPT-SoVITS",
+  "runtime_root": "/absolute/path/to/project/gpt_sovits_runtime",
   "inference_cli": "GPT_SoVITS/inference_cli.py",
-  "asr_python": "/absolute/path/to/faster-whisper-venv/bin/python"
+  "asr_python": "/absolute/path/to/asr/.venv-asr/bin/python"
 }
