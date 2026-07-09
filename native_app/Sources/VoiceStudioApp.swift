@@ -1906,6 +1906,14 @@ final class VoiceStudioModel: ObservableObject {
         let fm = FileManager.default
         let configURL = root.appendingPathComponent("gpt_sovits_runtime/engine_config.json")
 
+        // ── Seed config from example template on first launch ──
+        let exampleURL = root.appendingPathComponent("configs/engine_config.example.json")
+        if !fm.fileExists(atPath: configURL.path), fm.fileExists(atPath: exampleURL.path) {
+            let runtimeDir = root.appendingPathComponent("gpt_sovits_runtime")
+            ensureDirectory(runtimeDir)
+            try? fm.copyItem(at: exampleURL, to: configURL)
+        }
+
         if runtimeGPTSoVITSPath.isEmpty || runtimePythonPath.isEmpty {
             loadRuntimeSettingsFromConfig()
         }

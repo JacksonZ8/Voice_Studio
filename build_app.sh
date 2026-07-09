@@ -81,9 +81,11 @@ echo "Built: $APP"
 if $RELEASE; then
   ZIP="$ROOT/Voice_Studio-v${VERSION}.zip"
   rm -f "$ZIP"
-  # Create zip: app bundle plus setup files
+  # Create zip: app bundle + runtime files needed for training
   (cd "$ROOT" && zip -r "$ZIP" \
     "Voice Studio.app" \
+    scripts/ \
+    gpt_sovits_runtime/smoke_overrides/ \
     configs/engine_config.example.json \
     -x "*.build_cache*" \
     -x "*.git*" \

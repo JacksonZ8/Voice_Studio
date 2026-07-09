@@ -81,3 +81,5 @@ gpt_sovits_runtime/text
 .env
 .env.*
 *.secret
+Voice_Studio-v*.zip
+Voice_Studio-v*.zip.sha256
