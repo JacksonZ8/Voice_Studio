@@ -628,11 +628,11 @@ final class VoiceStudioModel: ObservableObject {
         let candidates = [
             bundleURL.deletingLastPathComponent(),
             bundleURL.deletingLastPathComponent().deletingLastPathComponent(),
-            bundleURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent(),
             URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         ]
+        // Marker that is always present: git clone AND release zip both include this
         for candidate in candidates {
-            if FileManager.default.fileExists(atPath: candidate.appendingPathComponent("training_voice_assets/configs/training_voice_config.json").path) {
+            if FileManager.default.fileExists(atPath: candidate.appendingPathComponent("gpt_sovits_runtime/smoke_overrides").path) {
                 return candidate
             }
         }
