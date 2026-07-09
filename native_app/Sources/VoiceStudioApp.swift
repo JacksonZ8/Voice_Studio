@@ -2873,51 +2873,29 @@ struct ContentView: View {
                 Button("完成") { showRuntimeSheet = false }
             }
 
-            // ── One-click download & install ──
-            if !model.runtimeGPTSoVITSPath.isEmpty &&
-                FileManager.default.fileExists(atPath: URL(fileURLWithPath: model.runtimeGPTSoVITSPath).appendingPathComponent("GPT_SoVITS/inference_cli.py").path) {
-                // GPT-SoVITS already available — show quick install button
-            } else {
-                VStack(spacing: 8) {
-                    if model.isDownloadingModels {
-                        VStack(spacing: 4) {
-                            ProgressView(value: model.downloadProgress)
-                                .frame(width: 200)
-                            Text(model.downloadStatusLabel)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    } else if model.isInstallingDeps {
-                        VStack(spacing: 4) {
-                            ProgressView(value: model.installProgress)
-                                .frame(width: 200)
-                            Text(model.installStatusLabel)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        HStack {
-                            Button(model.isDownloadingModels ? "下载中..." : "下载 GPT-SoVITS 模型 (~5.7GB)") { model.downloadModels() }
-                                .buttonStyle(PrimaryButtonStyle())
-                                .disabled(model.isDownloadingModels || model.isInstallingDeps)
-                        }
-                        HStack {
-                            Button(model.isInstallingDeps ? "安装中..." : "安装 Python 依赖") { model.installDependencies() }
-                                .disabled(model.isDownloadingModels || model.isInstallingDeps)
-                            Text("需要先下载模型")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        HStack {
-                            Button(model.isInstallingDeps ? "安装中..." : "安装 ASR 环境 (faster-whisper)") { model.installASR() }
-                                .disabled(model.isDownloadingModels || model.isInstallingDeps)
-                            Text("语音转文字草稿标注")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+            // ── One-click download & install (always visible) ──
+            VStack(spacing: 8) {
+                if model.isDownloadingModels {
+                    VStack(spacing: 4) {
+                        ProgressView(value: model.downloadProgress).frame(width: 200)
+                        Text(model.downloadStatusLabel).font(.footnote).foregroundStyle(.secondary)
                     }
+                } else if model.isInstallingDeps {
+                    VStack(spacing: 4) {
+                        ProgressView(value: model.installProgress).frame(width: 200)
+                        Text(model.installStatusLabel).font(.footnote).foregroundStyle(.secondary)
+                    }
+                } else {
+                    Button(model.isDownloadingModels ? "下载中..." : "下载 GPT-SoVITS 模型 (~5.7GB)") { model.downloadModels() }
+                        .buttonStyle(PrimaryButtonStyle())
+                        .disabled(model.isDownloadingModels || model.isInstallingDeps)
+                    Button(model.isInstallingDeps ? "安装中..." : "安装 Python 依赖") { model.installDependencies() }
+                        .disabled(model.isDownloadingModels || model.isInstallingDeps)
+                    Button(model.isInstallingDeps ? "安装中..." : "安装 ASR 环境 (faster-whisper)") { model.installASR() }
+                        .disabled(model.isDownloadingModels || model.isInstallingDeps)
                 }
             }
+            .padding(.vertical, 4)
 
             Divider()
 
