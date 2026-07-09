@@ -39,10 +39,10 @@ agent_handoff/
 UI风格.png
 weight.json
 
-# ── sandrone_tts_assets: only keep configs, docs, README ──
-sandrone_tts_assets/reference/
-sandrone_tts_assets/samples/
-sandrone_tts_assets/weights/
+# ── training_voice_assets: only keep configs, docs, README ──
+training_voice_assets/reference/
+training_voice_assets/samples/
+training_voice_assets/weights/
 
 # ── gpt_sovits_runtime: working directory, keep only source code ──
 gpt_sovits_runtime/engine_config.json

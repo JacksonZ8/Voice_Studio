@@ -16,7 +16,7 @@ Outputs a voice package:
     reference/
 
 Usage:
-  python run_training.py --project voice_projects/sandrone_native --exp-name sandrone_v2 \
+  python run_training.py --project voice_projects/training_voice_native --exp-name training_voice_v2 \
       --sovits-epochs 12 --gpt-epochs 8
 """
 

@@ -1,0 +1,46 @@
+{
+  "voice_id": "training_voice_v1",
+  "engine": "GPT-SoVITS",
+  "version": "v2",
+  "language": "zh",
+  "usage": "text_to_speech",
+  "weights": {
+    "gpt": "weights/gpt.ckpt",
+    "sovits": "weights/sovits.pth"
+  },
+  "reference": {
+    "audio": "reference/reference.wav",
+    "text": "这是一段用于训练音色推理的参考文本",
+    "language": "中文"
+  },
+  "inference": {
+    "default_target_language": "中文",
+    "default_ref_language": "中文",
+    "recommended_device": "cpu",
+    "full_precision": true,
+    "output_sample_rate": 32000
+  },
+  "validated_samples": [
+    {
+      "file": "samples/short.wav",
+      "text": "你好，这是训练音色。"
+    },
+    {
+      "file": "samples/medium.wav",
+      "text": "这项测试还没有结束，请继续观察它的变化。"
+    },
+    {
+      "file": "samples/long.wav",
+      "text": "如果你听到了这段声音，说明当前音色包已经可以被本地应用读取。"
+    },
+    {
+      "file": "samples/assistant.wav",
+      "text": "你好，这是训练音色的测试语音。"
+    }
+  ],
+  "notes": [
+    "This package is a local development template.",
+    "Replace the placeholder file paths with your own trained GPT-SoVITS voice package.",
+    "Do not commit model weights, reference audio, or generated samples unless distribution rights are confirmed."
+  ]
+}

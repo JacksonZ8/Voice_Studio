@@ -11,9 +11,9 @@ This repository should contain the Voice Studio application source and reproduci
 - `README.md`
 - `build_app.sh`
 - `.gitignore`
-- `sandrone_tts_assets/README.md`
-- `sandrone_tts_assets/configs/`
-- `sandrone_tts_assets/docs/`
+- `training_voice_assets/README.md`
+- `training_voice_assets/configs/`
+- `training_voice_assets/docs/`
 
 ## Keep Out Of Git
 
@@ -26,9 +26,9 @@ This repository should contain the Voice Studio application source and reproduci
 - `gpt_sovits_runtime/GPT_weights_v2/`
 - `gpt_sovits_runtime/SoVITS_weights_v2/`
 - `gpt_sovits_runtime/tools/uvr5/uvr5_weights/*.pth`
-- `sandrone_tts_assets/reference/`
-- `sandrone_tts_assets/samples/`
-- `sandrone_tts_assets/weights/`
+- `training_voice_assets/reference/`
+- `training_voice_assets/samples/`
+- `training_voice_assets/weights/`
 - `ONE_CLICK_TTS_TRAINER_PLAN.md`
 - `agent_handoff/`
 - local test media such as `测试语音.mp3`

@@ -182,13 +182,13 @@ final class ProcessRegistry {
 }
 
 final class VoiceStudioModel: ObservableObject {
-    @Published var projectName = "桑多涅"
-    @Published var voiceId = "sandrone_native"
+    @Published var projectName = "训练音色"
+    @Published var voiceId = "training_voice_native"
     @Published var sourcePath = ""
     @Published var status = "未创建"
     @Published var qualityReport: QualityReport?
     @Published var voiceInfo: VoiceInfo?
-    @Published var ttsText = "你好，我是你的智能助手桑多涅。"
+    @Published var ttsText = "你好，这是训练音色的测试语音。"
     @Published var ttsOutputPath = ""
     @Published var previewSampleText = ""
     @Published var autoPlayWhileTyping = true
@@ -607,7 +607,7 @@ final class VoiceStudioModel: ObservableObject {
             URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         ]
         for candidate in candidates {
-            if FileManager.default.fileExists(atPath: candidate.appendingPathComponent("sandrone_tts_assets/configs/sandrone_tts_config.json").path) {
+            if FileManager.default.fileExists(atPath: candidate.appendingPathComponent("training_voice_assets/configs/training_voice_config.json").path) {
                 return candidate
             }
         }
@@ -1664,7 +1664,7 @@ final class VoiceStudioModel: ObservableObject {
     }
 
     private func loadVoiceInfo() -> VoiceInfo? {
-        loadVoiceInfo(packageRoot: root.appendingPathComponent("sandrone_tts_assets"))
+        loadVoiceInfo(packageRoot: root.appendingPathComponent("training_voice_assets"))
     }
 
     private func loadVoiceInfo(packageRoot: URL) -> VoiceInfo? {
@@ -1683,7 +1683,7 @@ final class VoiceStudioModel: ObservableObject {
             return VoiceSample(file: file, text: item["text"] as? String ?? "")
         }
         return VoiceInfo(
-            voiceId: object["voice_id"] as? String ?? "sandrone_v1_e12_e8",
+            voiceId: object["voice_id"] as? String ?? "training_voice_v1",
             engine: object["engine"] as? String ?? "GPT-SoVITS",
             version: object["version"] as? String ?? "v2",
             language: object["language"] as? String ?? "zh",

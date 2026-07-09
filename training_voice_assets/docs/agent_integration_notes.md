@@ -7,8 +7,8 @@ POST /api/tts
 Content-Type: application/json
 
 {
-  "text": "你好，我是你的智能助手桑多涅。",
-  "voice_id": "sandrone_v1_e12_e8"
+  "text": "你好，这是训练音色的测试语音。",
+  "voice_id": "training_voice_v1"
 }
 ```
 
@@ -17,7 +17,7 @@ Response:
 ```json
 {
   "audio_path": "/data/audio_cache/xxx.wav",
-  "voice_id": "sandrone_v1_e12_e8",
+  "voice_id": "training_voice_v1",
   "duration_sec": 2.74,
   "cached": false
 }
@@ -38,7 +38,7 @@ Response:
 - Regenerate voice button.
 - TTS status: idle/generating/failed.
 - API usage page entry:
-  - name: Sandrone GPT-SoVITS
+  - name: Training Voice GPT-SoVITS
   - type: local TTS
   - endpoint: CLI or `127.0.0.1:9880`
   - model files: GPT + SoVITS
