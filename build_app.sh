@@ -85,6 +85,8 @@ if $RELEASE; then
   ZIP="$ROOT/Voice_Studio-v${VERSION}.zip"
   rm -f "$ZIP"
   # Create zip: app bundle + all runtime files needed for training
+  # Ensure external/ directory exists for bundled GPT-SoVITS destination
+  mkdir -p "$ROOT/external"
   (cd "$ROOT" && zip -r "$ZIP" \
     "Voice Studio.app" \
     scripts/ \
@@ -92,11 +94,13 @@ if $RELEASE; then
     training_voice_assets/configs/ \
     training_voice_assets/docs/ \
     training_voice_assets/README.md \
+    external/ \
     configs/engine_config.example.json \
     -x "*.build_cache*" \
     -x "*.git*" \
     -x "*__pycache__*" \
     -x "*.DS_Store" \
+    -x "external/GPT-SoVITS/*" \
   )
   echo "Release: $ZIP"
   # Generate SHA-256 for the release

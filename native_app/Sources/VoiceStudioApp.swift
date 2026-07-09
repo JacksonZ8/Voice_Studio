@@ -221,6 +221,14 @@ final class VoiceStudioModel: ObservableObject {
     @Published var runtimeSetupStatus = "未检测"
     @Published var runtimeCheckItems: [RuntimeCheckItem] = []
 
+    // One-click download / install
+    @Published var isDownloadingModels = false
+    @Published var isInstallingDeps = false
+    @Published var downloadProgress = 0.0
+    @Published var downloadStatusLabel = ""
+    @Published var installProgress = 0.0
+    @Published var installStatusLabel = ""
+
     // Project discovery
     @Published var discoveredProjects: [ProjectMeta] = []
     @Published var selectedProjectId: String? = nil
@@ -1878,6 +1886,120 @@ final class VoiceStudioModel: ObservableObject {
         }
     }
 
+    /// Download GPT-SoVITS pretrained models + G2P + UVR5 weights from HuggingFace.
+    func downloadModels() {
+        guard !isDownloadingModels else { return }
+        let script = root.appendingPathComponent("scripts/download_models.sh")
+        guard FileManager.default.fileExists(atPath: script.path) else {
+            alertMessage = "缺少下载脚本：\(script.path)"
+            return
+        }
+
+        isDownloadingModels = true
+        downloadProgress = 0.0
+        downloadStatusLabel = "准备下载..."
+        addLog("开始下载 GPT-SoVITS 模型（约 5.7GB，支持断点续传）...")
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.currentDirectoryURL = root
+        process.arguments = [script.path]
+        var env = ProcessInfo.processInfo.environment
+        env["PYTHONUNBUFFERED"] = "1"
+        process.environment = env
+
+        runProcessWithProgress(process, onLine: { [weak self] line in
+            guard let self else { return }
+            if line.hasPrefix("DOWNLOAD_PROGRESS=") {
+                if let pct = Double(line.replacingOccurrences(of: "DOWNLOAD_PROGRESS=", with: "")) {
+                    self.downloadProgress = pct
+                    self.downloadStatusLabel = "下载模型 \(Int(pct * 100))%"
+                }
+            } else if line.hasPrefix("DOWNLOAD_FILE=") {
+                let name = line.replacingOccurrences(of: "DOWNLOAD_FILE=", with: "")
+                self.downloadStatusLabel = "下载中: \(name)"
+                self.addLog("下载: \(name)")
+            } else if line.hasPrefix("[download]") || line.hasPrefix("[warn]") {
+                self.addLog(String(line.dropFirst(0)))
+            }
+        }, completion: { [weak self] ok, output in
+            self?.isDownloadingModels = false
+            if ok {
+                self?.downloadProgress = 1.0
+                self?.downloadStatusLabel = "下载完成"
+                self?.addLog("GPT-SoVITS 模型下载完成")
+                self?.detectRuntime()
+            } else {
+                self?.alertMessage = "模型下载失败。请检查网络连接后重试（支持断点续传）。\n\n\(output)"
+                self?.addLog("模型下载失败")
+            }
+        })
+    }
+
+    /// Install Python dependencies into the bundled venv.
+    func installDependencies() {
+        guard !isInstallingDeps else { return }
+        let script = root.appendingPathComponent("scripts/setup_environment.sh")
+        guard FileManager.default.fileExists(atPath: script.path) else {
+            alertMessage = "缺少安装脚本：\(script.path)"
+            return
+        }
+
+        // Check that GPT-SoVITS exists
+        let gptRoot = root.appendingPathComponent("external/GPT-SoVITS")
+        guard FileManager.default.fileExists(atPath: gptRoot.appendingPathComponent("requirements.txt").path) else {
+            alertMessage = "未找到 GPT-SoVITS。请先下载模型（模型包内含 GPT-SoVITS 源码）。"
+            return
+        }
+
+        isInstallingDeps = true
+        installProgress = 0.0
+        installStatusLabel = "创建虚拟环境..."
+        addLog("开始安装 Python 依赖（约 5-10 分钟）...")
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.currentDirectoryURL = root
+        process.arguments = [script.path]
+        var env = ProcessInfo.processInfo.environment
+        env["PYTHONUNBUFFERED"] = "1"
+        process.environment = env
+
+        runProcessWithProgress(process, onLine: { [weak self] line in
+            guard let self else { return }
+            if line.hasPrefix("SETUP_PROGRESS=") {
+                if let pct = Double(line.replacingOccurrences(of: "SETUP_PROGRESS=", with: "")) {
+                    self.installProgress = pct
+                    if pct < 0.15 { self.installStatusLabel = "创建虚拟环境..." }
+                    else if pct < 0.35 { self.installStatusLabel = "安装 PyTorch..." }
+                    else if pct < 0.85 { self.installStatusLabel = "安装依赖包..." }
+                    else { self.installStatusLabel = "验证安装..." }
+                }
+            } else if line.hasPrefix("[setup]") {
+                self.addLog(String(line.dropFirst(0)))
+            }
+        }, completion: { [weak self] ok, output in
+            self?.isInstallingDeps = false
+            if ok {
+                self?.installProgress = 1.0
+                self?.installStatusLabel = "环境就绪"
+                self?.addLog("Python 依赖安装完成")
+                // Update runtime paths
+                let gptRootPath = self?.root.appendingPathComponent("external/GPT-SoVITS").path ?? ""
+                let pythonPath = "\(gptRootPath)/.venv/bin/python"
+                if FileManager.default.fileExists(atPath: pythonPath) {
+                    self?.runtimeGPTSoVITSPath = gptRootPath
+                    self?.runtimePythonPath = pythonPath
+                    self?.autoWriteEngineConfig()
+                }
+                self?.detectRuntime()
+            } else {
+                self?.alertMessage = "依赖安装失败。\n\n\(output)"
+                self?.addLog("依赖安装失败")
+            }
+        })
+    }
+
     /// Silently write engine_config.json from current runtime settings (no alerts).
     private func autoWriteEngineConfig() {
         let gptRoot = runtimeGPTSoVITSPath.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2110,6 +2232,9 @@ final class VoiceStudioModel: ObservableObject {
             }
             return nil
         }
+
+        // 0. Bundled inside the app release (external/GPT-SoVITS/)
+        if let found = check(root.appendingPathComponent("external/GPT-SoVITS")) { return found }
 
         // 1. Direct paths (project sibling / home)
         let directs: [URL] = [
@@ -2688,12 +2813,51 @@ struct ContentView: View {
             HStack {
                 Button(model.isCreatingRuntimeVenv ? "创建 venv 中..." : "生成配置并检测") { model.configureRuntime() }
                     .buttonStyle(PrimaryButtonStyle())
-                    .disabled(model.isCreatingRuntimeVenv)
+                    .disabled(model.isCreatingRuntimeVenv || model.isDownloadingModels || model.isInstallingDeps)
                 Button("仅创建 venv") { model.createRuntimeVenv() }
-                    .disabled(model.isCreatingRuntimeVenv)
+                    .disabled(model.isCreatingRuntimeVenv || model.isDownloadingModels || model.isInstallingDeps)
                 Button("重新检测") { model.detectRuntime() }
                 Spacer()
                 Button("完成") { showRuntimeSheet = false }
+            }
+
+            // ── One-click download & install ──
+            if !model.runtimeGPTSoVITSPath.isEmpty &&
+                FileManager.default.fileExists(atPath: URL(fileURLWithPath: model.runtimeGPTSoVITSPath).appendingPathComponent("GPT_SoVITS/inference_cli.py").path) {
+                // GPT-SoVITS already available — show quick install button
+            } else {
+                VStack(spacing: 8) {
+                    if model.isDownloadingModels {
+                        VStack(spacing: 4) {
+                            ProgressView(value: model.downloadProgress)
+                                .frame(width: 200)
+                            Text(model.downloadStatusLabel)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if model.isInstallingDeps {
+                        VStack(spacing: 4) {
+                            ProgressView(value: model.installProgress)
+                                .frame(width: 200)
+                            Text(model.installStatusLabel)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        HStack {
+                            Button(model.isDownloadingModels ? "下载中..." : "下载 GPT-SoVITS 模型 (~5.7GB)") { model.downloadModels() }
+                                .buttonStyle(PrimaryButtonStyle())
+                                .disabled(model.isDownloadingModels || model.isInstallingDeps)
+                        }
+                        HStack {
+                            Button(model.isInstallingDeps ? "安装中..." : "安装 Python 依赖") { model.installDependencies() }
+                                .disabled(model.isDownloadingModels || model.isInstallingDeps)
+                            Text("需要先下载模型")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
             }
 
             Divider()

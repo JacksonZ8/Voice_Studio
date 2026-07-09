@@ -34,6 +34,7 @@ dist/
 
 # ── Data (voice projects, audio, trained weights) ──
 voice_projects/
+external/GPT-SoVITS/
 ONE_CLICK_TTS_TRAINER_PLAN.md
 agent_handoff/
 测试语音.mp3
