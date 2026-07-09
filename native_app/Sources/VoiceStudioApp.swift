@@ -2197,13 +2197,25 @@ final class VoiceStudioModel: ObservableObject {
             items.append(RuntimeCheckItem(title: "ASR Python", detail: asrPython, ok: fm.fileExists(atPath: asrPython)))
         }
 
-        let uvrDir = gptRootURL.appendingPathComponent("tools/uvr5/uvr5_weights")
-        let hasUVRWeights = ((try? fm.contentsOfDirectory(at: uvrDir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [])
-            .contains { ["pth", "ckpt"].contains($0.pathExtension.lowercased()) }
+        // UVR weights: check multiple possible locations
+        //  1) gptRoot/tools/uvr5/uvr5_weights/  (if zip extracted with subdir)
+        //  2) gptRoot/tools/uvr5/                (if zip extracted files directly)
+        //  3) root/external/GPT-SoVITS/tools/uvr5/uvr5_weights/ (download destination)
+        func hasWeights(in dir: URL) -> Bool {
+            ((try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [])
+                .contains { ["pth", "ckpt"].contains($0.pathExtension.lowercased()) }
+        }
+        let uvrCandidates: [URL] = [
+            gptRootURL.appendingPathComponent("tools/uvr5/uvr5_weights"),
+            gptRootURL.appendingPathComponent("tools/uvr5"),
+            root.appendingPathComponent("external/GPT-SoVITS/tools/uvr5/uvr5_weights"),
+            root.appendingPathComponent("external/GPT-SoVITS/tools/uvr5"),
+        ]
+        let uvrFound = uvrCandidates.first(where: { fm.fileExists(atPath: $0.path) && hasWeights(in: $0) })
         items.append(RuntimeCheckItem(
             title: "UVR/BS-RoFormer 权重",
-            detail: uvrDir.path,
-            ok: !gptRoot.isEmpty && hasUVRWeights
+            detail: uvrFound?.path ?? (uvrCandidates.first?.path ?? "未找到"),
+            ok: uvrFound != nil
         ))
 
         runtimeCheckItems = items
