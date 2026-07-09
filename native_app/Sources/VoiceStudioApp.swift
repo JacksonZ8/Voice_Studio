@@ -479,6 +479,8 @@ final class VoiceStudioModel: ObservableObject {
         if voiceInfo == nil {
             voiceInfo = loadVoiceInfo()
         }
+        ttsOutputPath = latestTTSOutputPath()?.path ?? ""
+        previewSampleText = ""
 
         // Map detected stage to StudioStep
         currentStep = mapStageToStep(meta.detectedStage)
@@ -569,6 +571,14 @@ final class VoiceStudioModel: ObservableObject {
 
     private var currentProjectURL: URL {
         root.appendingPathComponent("voice_projects/\(currentVoiceId)")
+    }
+
+    private var currentTTSOutputDir: URL {
+        currentProjectURL.appendingPathComponent("inference/tts_outputs")
+    }
+
+    private var currentTTSWorkDir: URL {
+        currentProjectURL.appendingPathComponent("inference/tts_work")
     }
 
     var canRunSeparation: Bool {
@@ -750,6 +760,8 @@ final class VoiceStudioModel: ObservableObject {
             return
         }
         voiceInfo = info
+        ttsOutputPath = latestTTSOutputPath()?.path ?? ""
+        previewSampleText = ""
         status = "语音包已导入"
         addLog("已导入语音包：\(info.voiceId)")
     }
@@ -1431,10 +1443,10 @@ final class VoiceStudioModel: ObservableObject {
             alertMessage = "找不到占位 sample wav。"
             return
         }
-        let outputDir = root.appendingPathComponent("voice_projects/_native_tts_outputs")
+        let outputDir = currentTTSOutputDir
         ensureDirectory(outputDir)
         cleanupTTSOutputs(in: outputDir, keeping: 20)
-        let cacheKey = Self.stableHash("\(voiceInfo.voiceId)|\(ttsText)")
+        let cacheKey = Self.stableHash("\(currentVoiceId)|\(voiceInfo.voiceId)|\(ttsText)")
         let output = outputDir.appendingPathComponent("\(voiceInfo.voiceId)_\(cacheKey).wav")
         do {
             if !FileManager.default.fileExists(atPath: output.path) {
@@ -1458,15 +1470,15 @@ final class VoiceStudioModel: ObservableObject {
             return
         }
 
-        let outputDir = root.appendingPathComponent("voice_projects/_native_tts_outputs")
-        let workDir = root.appendingPathComponent("voice_projects/_native_tts_work")
+        let outputDir = currentTTSOutputDir
+        let workDir = currentTTSWorkDir
         let cacheDir = root.appendingPathComponent("gpt_sovits_runtime/cache")
         ensureDirectory(outputDir)
         ensureDirectory(workDir)
         ensureDirectory(cacheDir)
         cleanupTTSOutputs(in: outputDir, keeping: 20)
 
-        let cacheKey = Self.stableHash("\(voiceInfo.voiceId)|real|\(trimmed)")
+        let cacheKey = Self.stableHash("\(currentVoiceId)|\(voiceInfo.voiceId)|real|\(trimmed)")
         let finalOutput = outputDir.appendingPathComponent("\(voiceInfo.voiceId)_real_\(cacheKey).wav")
         if FileManager.default.fileExists(atPath: finalOutput.path) {
             ttsOutputPath = finalOutput.path
@@ -1631,8 +1643,11 @@ final class VoiceStudioModel: ObservableObject {
     }
 
     func playLastOutput() {
+        if ttsOutputPath.isEmpty || !FileManager.default.fileExists(atPath: ttsOutputPath) {
+            ttsOutputPath = latestTTSOutputPath()?.path ?? ""
+        }
         guard !ttsOutputPath.isEmpty else {
-            alertMessage = "还没有 TTS 输出。"
+            alertMessage = "当前项目还没有 TTS 输出。"
             return
         }
         play(url: URL(fileURLWithPath: ttsOutputPath))
@@ -2187,6 +2202,24 @@ final class VoiceStudioModel: ObservableObject {
         for file in sorted.dropFirst(limit) {
             try? FileManager.default.removeItem(at: file)
         }
+    }
+
+    private func latestTTSOutputPath() -> URL? {
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: currentTTSOutputDir,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+        return files
+            .filter { $0.pathExtension.lowercased() == "wav" }
+            .sorted {
+                let left = ((try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast)
+                let right = ((try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast)
+                return left > right
+            }
+            .first
     }
 
     private func addLog(_ text: String) {
@@ -2904,7 +2937,7 @@ struct ContentView: View {
                 }
             }
             taskProgressBar
-            Text("自动预览只播放语音包 sample，不写文件；手动生成会调用 GPT-SoVITS 真实推理，按文本缓存并最多保留 20 个 wav。")
+            Text("自动预览只播放语音包 sample，不写文件；手动生成会调用 GPT-SoVITS 真实推理，输出保存在当前项目并最多保留 20 个 wav。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
