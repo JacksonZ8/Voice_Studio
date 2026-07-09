@@ -233,7 +233,7 @@ final class VoiceStudioModel: ObservableObject {
     @Published var discoveredProjects: [ProjectMeta] = []
     @Published var selectedProjectId: String? = nil
 
-    private let root: URL
+    let root: URL
     private var ttsDebounceTimer: Timer?
     private var sound: NSSound?
     private var taskStartTime: Date?
@@ -2873,7 +2873,17 @@ struct ContentView: View {
                 Button("完成") { showRuntimeSheet = false }
             }
 
-            // ── One-click download & install (always visible) ──
+            // ── One-click download & install ──
+            // Detect local state to show appropriate button labels
+            let extGptRoot = model.root.appendingPathComponent("external/GPT-SoVITS")
+            let extASR = model.root.appendingPathComponent("external/asr/.venv-asr/bin/python")
+            let fm = FileManager.default
+            let modelsReady = fm.fileExists(atPath: extGptRoot.appendingPathComponent("GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large/pytorch_model.bin").path)
+                && fm.fileExists(atPath: extGptRoot.appendingPathComponent("GPT_SoVITS/pretrained_models/chinese-hubert-base/pytorch_model.bin").path)
+                && fm.fileExists(atPath: extGptRoot.appendingPathComponent("GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s2G2333k.pth").path)
+            let depsReady = fm.fileExists(atPath: extGptRoot.appendingPathComponent(".venv/bin/python").path)
+            let asrReady = fm.fileExists(atPath: extASR.path)
+
             VStack(spacing: 8) {
                 if model.isDownloadingModels {
                     VStack(spacing: 4) {
@@ -2886,13 +2896,31 @@ struct ContentView: View {
                         Text(model.installStatusLabel).font(.footnote).foregroundStyle(.secondary)
                     }
                 } else {
-                    Button(model.isDownloadingModels ? "下载中..." : "下载 GPT-SoVITS 模型 (~5.7GB)") { model.downloadModels() }
-                        .buttonStyle(PrimaryButtonStyle())
-                        .disabled(model.isDownloadingModels || model.isInstallingDeps)
-                    Button(model.isInstallingDeps ? "安装中..." : "安装 Python 依赖") { model.installDependencies() }
-                        .disabled(model.isDownloadingModels || model.isInstallingDeps)
-                    Button(model.isInstallingDeps ? "安装中..." : "安装 ASR 环境 (faster-whisper)") { model.installASR() }
-                        .disabled(model.isDownloadingModels || model.isInstallingDeps)
+                    if modelsReady {
+                        Label("GPT-SoVITS 模型已就绪", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.footnote)
+                    } else {
+                        Button(model.isDownloadingModels ? "下载中..." : "下载 GPT-SoVITS 模型 (~5.7GB)") { model.downloadModels() }
+                            .buttonStyle(PrimaryButtonStyle())
+                            .disabled(model.isDownloadingModels || model.isInstallingDeps)
+                    }
+                    if depsReady {
+                        Label("Python 依赖已安装", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.footnote)
+                    } else {
+                        Button(model.isInstallingDeps ? "安装中..." : "安装 Python 依赖") { model.installDependencies() }
+                            .disabled(model.isDownloadingModels || model.isInstallingDeps)
+                    }
+                    if asrReady {
+                        Label("ASR 环境已就绪", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.footnote)
+                    } else {
+                        Button(model.isInstallingDeps ? "安装中..." : "安装 ASR 环境 (faster-whisper)") { model.installASR() }
+                            .disabled(model.isDownloadingModels || model.isInstallingDeps)
+                    }
                 }
             }
             .padding(.vertical, 4)
