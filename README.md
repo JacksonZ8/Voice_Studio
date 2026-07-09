@@ -69,15 +69,17 @@ Voice Studio.app/Contents/MacOS/VoiceStudio
 ## Project Layout
 
 ```text
-Voice_train/
+Voice_Studio/
   native_app/Sources/             # SwiftUI app source
-  scripts/                        # Local pipeline helpers
+  scripts/                        # Local pipeline helpers (training, ASR, slicing, separation)
   configs/                        # Example runtime config
   docs/                           # Packaging and setup notes
   training_voice_assets/          # Generic voice package metadata template
-  gpt_sovits_runtime/             # Local runtime directory, ignored where needed
+  gpt_sovits_runtime/             # Local runtime directory (config, smoke overrides, cache)
   voice_projects/                 # Local project data, ignored by Git
 ```
+
+The app is self-contained: the built `Voice Studio.app` reads `scripts/` and `gpt_sovits_runtime/` relative to its own bundle location. Clone this repo anywhere — no hardcoded paths required.
 
 Each local voice project uses:
 
@@ -95,32 +97,34 @@ voice_projects/{voice_id}/
 
 ## Configure GPT-SoVITS
 
-The app includes a runtime setup panel. Open Voice Studio, click **运行环境** in the sidebar, then:
+**Auto-detection (recommended).** Voice Studio scans common locations on launch — sibling directories, `~/GPT-SoVITS`, `~/Desktop`, and any subdirectory containing `external/GPT-SoVITS` or `GPT-SoVITS`. If it finds the GPT-SoVITS root, the matching Python venv (`.venv-gpt-sovits`, `.venv`, etc.), the ASR Python, and ffmpeg, it writes `gpt_sovits_runtime/engine_config.json` automatically. No manual setup needed.
 
-1. Select your local GPT-SoVITS root directory.
-2. Click **生成配置并检测**. If no Python is selected, Voice Studio creates `.venv-voice-studio` inside the GPT-SoVITS directory and uses its `bin/python`.
-3. Optionally select the Python executable used for ASR.
+Open **运行环境** in the sidebar to review the detected items. If anything is missing, you can override it manually:
 
-Voice Studio will write `gpt_sovits_runtime/engine_config.json` and check the core runtime files. The generated venv gives the app a dedicated Python executable; GPT-SoVITS Python package dependencies still need to match the GPT-SoVITS project requirements.
+1. Select your local GPT-SoVITS root directory (the folder that contains `GPT_SoVITS/inference_cli.py`).
+2. Click **生成配置并检测**. The app auto-guesses Python and ASR Python relative to the chosen root.
+3. Optionally select a different Python for ASR draft labeling.
 
-For manual setup, create a local runtime config from the template:
+For manual setup, copy the template and edit it:
 
 ```bash
 cp configs/engine_config.example.json gpt_sovits_runtime/engine_config.json
 ```
 
-Then edit `gpt_sovits_runtime/engine_config.json`:
-
 ```json
 {
-  "python": "/path/to/GPT-SoVITS/.venv-voice-studio/bin/python",
-  "runtime_root": "/path/to/GPT-SoVITS",
+  "python": "/path/to/GPT-SoVITS/.venv/bin/python",
+  "gpt_sovits_root": "/path/to/GPT-SoVITS",
+  "runtime_root": "/path/to/project/gpt_sovits_runtime",
   "inference_cli": "GPT_SoVITS/inference_cli.py",
-  "asr_python": "/path/to/faster-whisper-venv/bin/python"
+  "asr_python": "/path/to/asr/.venv-asr/bin/python"
 }
 ```
 
-`runtime_root` should point to your local GPT-SoVITS root directory. The app can create `.venv-voice-studio` there when generating the config.
+- `gpt_sovits_root` — your local GPT-SoVITS installation root.
+- `runtime_root` — the `gpt_sovits_runtime/` working directory inside this project.
+- `python` — the Python executable for training and TTS inference (must have `torch` and GPT-SoVITS dependencies installed).
+- `asr_python` — optional; Python with `faster-whisper` installed for ASR draft labeling.
 
 ## Voice Package Format
 
@@ -149,11 +153,13 @@ Implemented:
 - Step-by-step workflow for import, separation, ASR labeling, training, and TTS.
 - Real separation script wrapper with UVR/BS-RoFormer first and Demucs fallback.
 - ASR draft labeling script using faster-whisper when available.
-- GPT-SoVITS training scripts for local projects.
+- GPT-SoVITS training scripts with real-time streaming output and ffmpeg auto-detection.
 - GPT-SoVITS CLI inference hook for real TTS generation.
 - Voice package import and TTS output playback.
 - Bounded TTS output cache behavior.
 - App shutdown handling for child training/inference processes.
+- **Auto-detection** of GPT-SoVITS root, Python venv, ASR Python, and ffmpeg on launch.
+- **Portable layout** — no hardcoded paths; clone anywhere and build.
 
 Still limited or optional:
 
@@ -178,14 +184,27 @@ See `docs/GITHUB_PACKAGING.md` for the packaging boundary.
 
 ## Development Checks
 
-Useful local checks:
+Build the app:
 
 ```bash
 ./build_app.sh
-python3 -m py_compile scripts/run_app_training_smoke.py scripts/run_asr.py scripts/run_separation.py scripts/run_slicing.py scripts/run_training.py
 ```
 
-Before publishing, also check that no local data or model files are staged:
+Verify Python scripts parse correctly:
+
+```bash
+python3 -m py_compile scripts/run_training.py scripts/run_asr.py scripts/run_separation.py scripts/run_slicing.py
+```
+
+Test auto-detection from a clean state (remove any existing config first):
+
+```bash
+rm -f gpt_sovits_runtime/engine_config.json
+rm -rf gpt_sovits_runtime/cache
+# Then launch the app — it should auto-detect and write engine_config.json
+```
+
+Before publishing, check that no local data or model files are staged:
 
 ```bash
 git status --ignored
