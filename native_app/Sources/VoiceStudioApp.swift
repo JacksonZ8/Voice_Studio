@@ -2000,6 +2000,57 @@ final class VoiceStudioModel: ObservableObject {
         })
     }
 
+    /// Install faster-whisper into a dedicated ASR venv.
+    func installASR() {
+        guard !isInstallingDeps else { return }
+        let script = root.appendingPathComponent("scripts/setup_asr.sh")
+        guard FileManager.default.fileExists(atPath: script.path) else {
+            alertMessage = "缺少 ASR 安装脚本：\(script.path)"
+            return
+        }
+
+        isInstallingDeps = true
+        installProgress = 0.0
+        installStatusLabel = "安装 ASR 环境..."
+        addLog("开始安装 ASR 环境（faster-whisper）...")
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.currentDirectoryURL = root
+        process.arguments = [script.path]
+        var env = ProcessInfo.processInfo.environment
+        env["PYTHONUNBUFFERED"] = "1"
+        process.environment = env
+
+        runProcessWithProgress(process, onLine: { [weak self] line in
+            guard let self else { return }
+            if line.hasPrefix("SETUP_PROGRESS=") {
+                if let pct = Double(line.replacingOccurrences(of: "SETUP_PROGRESS=", with: "")) {
+                    self.installProgress = pct
+                    self.installStatusLabel = "安装 ASR 环境..."
+                }
+            } else if line.hasPrefix("[asr]") {
+                self.addLog(String(line.dropFirst(0)))
+            }
+        }, completion: { [weak self] ok, output in
+            self?.isInstallingDeps = false
+            if ok {
+                self?.installProgress = 1.0
+                self?.installStatusLabel = "ASR 就绪"
+                let asrPython = self!.root.appendingPathComponent("external/asr/.venv-asr/bin/python").path
+                if FileManager.default.fileExists(atPath: asrPython) {
+                    self?.runtimeASRPythonPath = asrPython
+                    self?.autoWriteEngineConfig()
+                }
+                self?.addLog("ASR 环境安装完成")
+                self?.detectRuntime()
+            } else {
+                self?.alertMessage = "ASR 安装失败。\n\n\(output)"
+                self?.addLog("ASR 安装失败")
+            }
+        })
+    }
+
     /// Silently write engine_config.json from current runtime settings (no alerts).
     private func autoWriteEngineConfig() {
         let gptRoot = runtimeGPTSoVITSPath.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2290,8 +2341,9 @@ final class VoiceStudioModel: ObservableObject {
         ]
         for c in nearCandidates { if check(c) { return c } }
 
-        // 2. Inside project root
+        // 2. Inside project root (bundled + custom)
         let inProject: [URL] = [
+            root.appendingPathComponent("external/asr/.venv-asr/bin/python"),
             root.appendingPathComponent(".venv-asr/bin/python"),
             root.appendingPathComponent("asr/.venv-asr/bin/python"),
         ]
@@ -2853,6 +2905,13 @@ struct ContentView: View {
                             Button(model.isInstallingDeps ? "安装中..." : "安装 Python 依赖") { model.installDependencies() }
                                 .disabled(model.isDownloadingModels || model.isInstallingDeps)
                             Text("需要先下载模型")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        HStack {
+                            Button(model.isInstallingDeps ? "安装中..." : "安装 ASR 环境 (faster-whisper)") { model.installASR() }
+                                .disabled(model.isDownloadingModels || model.isInstallingDeps)
+                            Text("语音转文字草稿标注")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
