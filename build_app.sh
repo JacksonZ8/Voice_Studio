@@ -76,6 +76,9 @@ if command -v codesign >/dev/null 2>&1; then
   codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
 fi
 
+# Strip quarantine (local builds don't need it; release zips won't carry it)
+xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
+
 echo "Built: $APP"
 
 if $RELEASE; then

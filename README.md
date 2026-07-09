@@ -46,19 +46,26 @@ The repository does not ship model weights, voice data, generated audio, or full
 
 ## Run The App
 
-If you already have a built app bundle:
+### Option A: Download release (recommended)
 
-```text
-Voice Studio.app
+Download `Voice_Studio-v*.zip` from the [latest release](https://github.com/JacksonZ8/Voice_Studio/releases), unzip, then:
+
+```bash
+# REQUIRED: remove macOS quarantine (otherwise auto-detection cannot write config)
+xattr -dr com.apple.quarantine "Voice Studio.app"
 ```
 
-On first launch, macOS may warn that the app is unsigned. Right-click `Voice Studio.app`, choose **Open**, then confirm.
+Then right-click `Voice Studio.app` → **Open** (first-launch Gatekeeper bypass). The app will auto-detect GPT-SoVITS, Python, ASR, and ffmpeg, and write `engine_config.json` on launch.
 
-To rebuild the app from source:
+If you skip the `xattr` step, the app may silently fail to generate the runtime config.
+
+### Option B: Build from source
 
 ```bash
 ./build_app.sh
 ```
+
+This compiles the Swift source into `Voice Studio.app`. No quarantine applies to local builds.
 
 This creates or updates:
 
