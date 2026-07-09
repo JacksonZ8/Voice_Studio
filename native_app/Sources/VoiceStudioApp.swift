@@ -216,6 +216,7 @@ final class VoiceStudioModel: ObservableObject {
     @Published var runtimeGPTSoVITSPath = ""
     @Published var runtimePythonPath = ""
     @Published var runtimeASRPythonPath = ""
+    @Published var isCreatingRuntimeVenv = false
     @Published var runtimeSetupStatus = "未检测"
     @Published var runtimeCheckItems: [RuntimeCheckItem] = []
 
@@ -1761,6 +1762,26 @@ final class VoiceStudioModel: ObservableObject {
         detectRuntime()
     }
 
+    func createRuntimeVenv() {
+        let gptRoot = runtimeGPTSoVITSPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !gptRoot.isEmpty else {
+            alertMessage = "请先选择 GPT-SoVITS 根目录。"
+            return
+        }
+        let gptRootURL = URL(fileURLWithPath: gptRoot)
+        guard FileManager.default.fileExists(atPath: gptRootURL.appendingPathComponent("GPT_SoVITS/inference_cli.py").path) else {
+            alertMessage = "未找到 GPT_SoVITS/inference_cli.py，请确认选择的是 GPT-SoVITS 根目录。"
+            return
+        }
+        guard let python = ensureRuntimePython(gptRootURL: gptRootURL, preferExisting: false) else {
+            return
+        }
+        runtimePythonPath = python
+        runtimeSetupStatus = "已创建 venv"
+        addLog("已创建/选择 GPT-SoVITS 虚拟环境：\(python)")
+        detectRuntime()
+    }
+
     func chooseRuntimePython() {
         let panel = NSOpenPanel()
         panel.title = "选择 GPT-SoVITS Python"
@@ -1795,18 +1816,17 @@ final class VoiceStudioModel: ObservableObject {
 
     func configureRuntime() {
         let gptRoot = runtimeGPTSoVITSPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        let python = runtimePythonPath.trimmingCharacters(in: .whitespacesAndNewlines)
         let asrPython = runtimeASRPythonPath.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !gptRoot.isEmpty else {
             alertMessage = "请先选择 GPT-SoVITS 根目录。"
             return
         }
-        guard !python.isEmpty else {
-            alertMessage = "请先选择 GPT-SoVITS Python。"
-            return
-        }
 
         let gptRootURL = URL(fileURLWithPath: gptRoot)
+        guard let python = ensureRuntimePython(gptRootURL: gptRootURL, preferExisting: true) else {
+            return
+        }
+        runtimePythonPath = python
         let pythonURL = URL(fileURLWithPath: python)
         let cliURL = gptRootURL.appendingPathComponent("GPT_SoVITS/inference_cli.py")
         guard FileManager.default.fileExists(atPath: cliURL.path) else {
@@ -1918,6 +1938,43 @@ final class VoiceStudioModel: ObservableObject {
         runtimeGPTSoVITSPath = engine.runtimeRoot
         runtimePythonPath = engine.python
         runtimeASRPythonPath = engine.asrPython ?? ""
+    }
+
+    private func ensureRuntimePython(gptRootURL: URL, preferExisting: Bool) -> String? {
+        let existingPath = runtimePythonPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !existingPath.isEmpty, FileManager.default.fileExists(atPath: existingPath) {
+            return existingPath
+        }
+        if preferExisting, let guessed = guessPython(in: gptRootURL) {
+            return guessed.path
+        }
+
+        let venvURL = gptRootURL.appendingPathComponent(".venv-voice-studio")
+        let pythonURL = venvURL.appendingPathComponent("bin/python")
+        if FileManager.default.fileExists(atPath: pythonURL.path) {
+            return pythonURL.path
+        }
+        guard let systemPython = findSystemPython3() else {
+            alertMessage = "未找到系统 python3，无法自动创建虚拟环境。请先安装 Python 3。"
+            return nil
+        }
+
+        runtimeSetupStatus = "创建 venv 中"
+        isCreatingRuntimeVenv = true
+        defer { isCreatingRuntimeVenv = false }
+        let result = runProcess(executable: systemPython, arguments: ["-m", "venv", venvURL.path], currentDirectory: gptRootURL)
+        guard result.ok, FileManager.default.fileExists(atPath: pythonURL.path) else {
+            let detail = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+            alertMessage = detail.isEmpty ? "创建 GPT-SoVITS 虚拟环境失败。" : "创建 GPT-SoVITS 虚拟环境失败：\n\(detail)"
+            return nil
+        }
+        return pythonURL.path
+    }
+
+    private func findSystemPython3() -> String? {
+        ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"].first {
+            FileManager.default.fileExists(atPath: $0)
+        }
     }
 
     private func guessPython(in gptRoot: URL) -> URL? {
@@ -2394,7 +2451,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("运行环境配置")
                         .font(.title2.bold())
-                    Text("先选 GPT-SoVITS 根目录；Python 分两类：GPT-SoVITS Python 必选，ASR Python 可先不选。")
+                    Text("先选 GPT-SoVITS 根目录；App 会自动创建 GPT-SoVITS 专用 venv，ASR Python 可先不选。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -2417,8 +2474,8 @@ struct ContentView: View {
                 )
                 runtimePathRow(
                     title: "2. GPT-SoVITS Python（必选）",
-                    help: "给训练和 TTS 推理使用。优先选 GPT-SoVITS 目录里的 .venv/bin/python 或 .venv-gpt-sovits/bin/python。选择根目录后 App 会尝试自动填入。",
-                    placeholder: "/path/to/GPT-SoVITS/.venv/bin/python",
+                    help: "给训练和 TTS 推理使用。通常不用手选：点击“生成配置并检测”时，App 会在 GPT-SoVITS 根目录自动创建 .venv-voice-studio/bin/python。",
+                    placeholder: "/path/to/GPT-SoVITS/.venv-voice-studio/bin/python",
                     text: $model.runtimePythonPath,
                     buttonTitle: "选择 Python",
                     action: model.chooseRuntimePython
@@ -2434,8 +2491,11 @@ struct ContentView: View {
             }
 
             HStack {
-                Button("生成配置并检测") { model.configureRuntime() }
+                Button(model.isCreatingRuntimeVenv ? "创建 venv 中..." : "生成配置并检测") { model.configureRuntime() }
                     .buttonStyle(PrimaryButtonStyle())
+                    .disabled(model.isCreatingRuntimeVenv)
+                Button("仅创建 venv") { model.createRuntimeVenv() }
+                    .disabled(model.isCreatingRuntimeVenv)
                 Button("重新检测") { model.detectRuntime() }
                 Spacer()
                 Button("完成") { showRuntimeSheet = false }
@@ -2469,7 +2529,7 @@ struct ContentView: View {
             }
             .frame(height: 210)
 
-            Text("简单理解：前两个必选，能让 TTS/训练跑起来；第三个 ASR Python 可选，只影响自动生成文本标注。这一步不会下载或安装依赖。")
+            Text("简单理解：只要先选 GPT-SoVITS 根目录，App 会自动创建 TTS/训练用的 Python venv；ASR Python 可选，只影响自动生成文本标注。依赖包仍按 GPT-SoVITS 项目要求安装。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

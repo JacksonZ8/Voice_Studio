@@ -98,11 +98,10 @@ voice_projects/{voice_id}/
 The app includes a runtime setup panel. Open Voice Studio, click **运行环境** in the sidebar, then:
 
 1. Select your local GPT-SoVITS root directory.
-2. Select the Python executable used by that GPT-SoVITS checkout.
+2. Click **生成配置并检测**. If no Python is selected, Voice Studio creates `.venv-voice-studio` inside the GPT-SoVITS directory and uses its `bin/python`.
 3. Optionally select the Python executable used for ASR.
-4. Click **生成配置并检测**.
 
-Voice Studio will write `gpt_sovits_runtime/engine_config.json` and check the core runtime files.
+Voice Studio will write `gpt_sovits_runtime/engine_config.json` and check the core runtime files. The generated venv gives the app a dedicated Python executable; GPT-SoVITS Python package dependencies still need to match the GPT-SoVITS project requirements.
 
 For manual setup, create a local runtime config from the template:
 
@@ -114,14 +113,14 @@ Then edit `gpt_sovits_runtime/engine_config.json`:
 
 ```json
 {
-  "python": "/path/to/GPT-SoVITS/.venv/bin/python",
-  "runtime_root": "/path/to/Voice_train/gpt_sovits_runtime",
+  "python": "/path/to/GPT-SoVITS/.venv-voice-studio/bin/python",
+  "runtime_root": "/path/to/GPT-SoVITS",
   "inference_cli": "GPT_SoVITS/inference_cli.py",
   "asr_python": "/path/to/faster-whisper-venv/bin/python"
 }
 ```
 
-`runtime_root` should point to your local writable runtime directory. It can contain local symlinks, caches, `weight.json`, and other files needed by your GPT-SoVITS setup.
+`runtime_root` should point to your local GPT-SoVITS root directory. The app can create `.venv-voice-studio` there when generating the config.
 
 ## Voice Package Format
 
