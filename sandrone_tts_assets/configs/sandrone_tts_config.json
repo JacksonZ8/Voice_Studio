@@ -1,0 +1,46 @@
+{
+  "voice_id": "sandrone_v1_e12_e8",
+  "engine": "GPT-SoVITS",
+  "version": "v2",
+  "language": "zh",
+  "usage": "text_to_speech",
+  "weights": {
+    "gpt": "weights/sandrone_v1-e8.ckpt",
+    "sovits": "weights/sandrone_v1_e12_s2028.pth"
+  },
+  "reference": {
+    "audio": "reference/reference.wav",
+    "text": "这地方倒是挺清静的刚好适合一个人做点研究",
+    "language": "中文"
+  },
+  "inference": {
+    "default_target_language": "中文",
+    "default_ref_language": "中文",
+    "recommended_device": "cpu",
+    "full_precision": true,
+    "output_sample_rate": 32000
+  },
+  "validated_samples": [
+    {
+      "file": "samples/short.wav",
+      "text": "你好，我是桑多涅。"
+    },
+    {
+      "file": "samples/medium.wav",
+      "text": "这项实验还没有结束，请继续观察它的变化。"
+    },
+    {
+      "file": "samples/long.wav",
+      "text": "如果你以为这些机械只是冰冷的工具，那说明你还没有真正理解它们的价值。"
+    },
+    {
+      "file": "samples/assistant_sandrone.wav",
+      "text": "你好，我是你的智能助手桑多涅。"
+    }
+  ],
+  "notes": [
+    "This package is for local personal research only.",
+    "The reference audio provides voice/style conditioning for inference.",
+    "The original GPT-SoVITS checkout in this workspace includes local compatibility patches for offline Chinese inference and soundfile WAV loading."
+  ]
+}

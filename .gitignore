@@ -1,0 +1,81 @@
+# ── macOS ──
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+
+# ── Build & cache ──
+.build_cache/
+__pycache__/
+.pycache/
+*.pyc
+*.pyo
+.build/
+DerivedData/
+*.xcuserdata
+*.xcworkspace/xcuserdata/
+
+# ── IDE ──
+.idea/
+.vscode/
+*.swp
+*.swo
+CLAUDE.md
+AGENTS.md
+
+# ── App binary ──
+Voice Studio.app/
+native_app/Voice Studio.app/
+dist/
+
+# ── Data (voice projects, audio, trained weights) ──
+voice_projects/
+ONE_CLICK_TTS_TRAINER_PLAN.md
+agent_handoff/
+测试语音.mp3
+UI风格.png
+weight.json
+
+# ── sandrone_tts_assets: only keep configs, docs, README ──
+sandrone_tts_assets/reference/
+sandrone_tts_assets/samples/
+sandrone_tts_assets/weights/
+
+# ── gpt_sovits_runtime: working directory, keep only source code ──
+gpt_sovits_runtime/engine_config.json
+gpt_sovits_runtime/weight.json
+gpt_sovits_runtime/cache/
+gpt_sovits_runtime/logs/
+gpt_sovits_runtime/logs_s2_v2/
+gpt_sovits_runtime/logs_s1_v2/
+gpt_sovits_runtime/eval/
+gpt_sovits_runtime/TEMP/
+gpt_sovits_runtime/SoVITS_weights_v2/
+gpt_sovits_runtime/GPT_weights_v2/
+gpt_sovits_runtime/pretrained_models/
+gpt_sovits_runtime/*.pth
+gpt_sovits_runtime/*.ckpt
+gpt_sovits_runtime/*.pt
+gpt_sovits_runtime/*.bin
+gpt_sovits_runtime/*.safetensors
+gpt_sovits_runtime/*.index
+gpt_sovits_runtime/events.out.*
+gpt_sovits_runtime/train.log
+gpt_sovits_runtime/*.wav
+gpt_sovits_runtime/*.mp3
+
+# ── gpt_sovits_runtime symlinks (absolute paths, useless on other machines) ──
+gpt_sovits_runtime/GPT_SoVITS
+gpt_sovits_runtime/tools
+gpt_sovits_runtime/configs
+gpt_sovits_runtime/config.py
+gpt_sovits_runtime/feature_extractor
+gpt_sovits_runtime/text
+
+# ── Env / secrets ──
+.env
+.env.*
+*.secret
