@@ -2394,7 +2394,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("运行环境配置")
                         .font(.title2.bold())
-                    Text("选择本机 GPT-SoVITS 和 Python，自动生成 engine_config.json。")
+                    Text("先选 GPT-SoVITS 根目录；Python 分两类：GPT-SoVITS Python 必选，ASR Python 可先不选。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -2408,21 +2408,24 @@ struct ContentView: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 runtimePathRow(
-                    title: "GPT-SoVITS 根目录",
+                    title: "1. GPT-SoVITS 根目录（必选）",
+                    help: "选择包含 GPT_SoVITS 文件夹和 inference_cli.py 的目录。通常就是你下载/clone 的 GPT-SoVITS 项目根目录。",
                     placeholder: "/path/to/GPT-SoVITS",
                     text: $model.runtimeGPTSoVITSPath,
                     buttonTitle: "选择目录",
                     action: model.chooseGPTSoVITSRoot
                 )
                 runtimePathRow(
-                    title: "GPT-SoVITS Python",
+                    title: "2. GPT-SoVITS Python（必选）",
+                    help: "给训练和 TTS 推理使用。优先选 GPT-SoVITS 目录里的 .venv/bin/python 或 .venv-gpt-sovits/bin/python。选择根目录后 App 会尝试自动填入。",
                     placeholder: "/path/to/GPT-SoVITS/.venv/bin/python",
                     text: $model.runtimePythonPath,
                     buttonTitle: "选择 Python",
                     action: model.chooseRuntimePython
                 )
                 runtimePathRow(
-                    title: "ASR Python（可选）",
+                    title: "3. ASR Python（可选）",
+                    help: "只用于“ASR 草稿标注”。如果你暂时只想用已有语音包做 TTS，可以先不选；不影响 TTS 生成。",
                     placeholder: "/path/to/faster-whisper-venv/bin/python",
                     text: $model.runtimeASRPythonPath,
                     buttonTitle: "选择 Python",
@@ -2466,31 +2469,39 @@ struct ContentView: View {
             }
             .frame(height: 210)
 
-            Text("这一步不会下载或安装依赖；它只生成配置并检查当前机器已有的 GPT-SoVITS、ffmpeg、ASR 和分离权重。")
+            Text("简单理解：前两个必选，能让 TTS/训练跑起来；第三个 ASR Python 可选，只影响自动生成文本标注。这一步不会下载或安装依赖。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .padding(22)
-        .frame(width: 720, height: 620)
+        .frame(width: 780, height: 700)
         .background(Color(red: 0.72, green: 0.86, blue: 0.92))
     }
 
     private func runtimePathRow(
         title: String,
+        help: String,
         placeholder: String,
         text: Binding<String>,
         buttonTitle: String,
         action: @escaping () -> Void
     ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 5) {
             Text(title)
                 .font(.footnote.weight(.semibold))
+            Text(help)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             HStack {
                 TextField(placeholder, text: text)
                     .textFieldStyle(.roundedBorder)
                 Button(buttonTitle, action: action)
             }
         }
+        .padding(8)
+        .background(Color.white.opacity(0.16))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     private func projectRow(_ project: ProjectMeta) -> some View {
