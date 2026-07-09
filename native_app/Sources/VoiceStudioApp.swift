@@ -25,6 +25,13 @@ struct TTSEngineConfig {
     let asrPython: String?
 }
 
+struct RuntimeCheckItem: Identifiable {
+    let id = UUID()
+    let title: String
+    let detail: String
+    let ok: Bool
+}
+
 struct VoiceSample {
     let file: String
     let text: String
@@ -206,6 +213,11 @@ final class VoiceStudioModel: ObservableObject {
     @Published var taskProgress = 0.0
     @Published var taskStage = ""
     @Published var taskStatusLabel = ""
+    @Published var runtimeGPTSoVITSPath = ""
+    @Published var runtimePythonPath = ""
+    @Published var runtimeASRPythonPath = ""
+    @Published var runtimeSetupStatus = "未检测"
+    @Published var runtimeCheckItems: [RuntimeCheckItem] = []
 
     // Project discovery
     @Published var discoveredProjects: [ProjectMeta] = []
@@ -223,6 +235,7 @@ final class VoiceStudioModel: ObservableObject {
         self.sourcePath = ""
         self.voiceInfo = loadVoiceInfo()
         ensureDirectory(root.appendingPathComponent("voice_projects"))
+        loadRuntimeSettingsFromConfig()
         addLog("Voice Studio 已就绪。请导入音频/视频素材开始。")
 
         // Auto-discover projects and restore last session
@@ -1714,6 +1727,194 @@ final class VoiceStudioModel: ObservableObject {
         )
     }
 
+    func chooseGPTSoVITSRoot() {
+        let panel = NSOpenPanel()
+        panel.title = "选择 GPT-SoVITS 根目录"
+        panel.prompt = "选择"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        if !runtimeGPTSoVITSPath.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: runtimeGPTSoVITSPath)
+        }
+        guard panel.runModal() == .OK, let selected = panel.url else { return }
+        runtimeGPTSoVITSPath = selected.path
+        if runtimePythonPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let guessed = guessPython(in: selected) {
+            runtimePythonPath = guessed.path
+        }
+        detectRuntime()
+    }
+
+    func chooseRuntimePython() {
+        let panel = NSOpenPanel()
+        panel.title = "选择 GPT-SoVITS Python"
+        panel.prompt = "选择"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if !runtimePythonPath.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: runtimePythonPath).deletingLastPathComponent()
+        } else if !runtimeGPTSoVITSPath.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: runtimeGPTSoVITSPath)
+        }
+        guard panel.runModal() == .OK, let selected = panel.url else { return }
+        runtimePythonPath = selected.path
+        detectRuntime()
+    }
+
+    func chooseASRPython() {
+        let panel = NSOpenPanel()
+        panel.title = "选择 ASR Python（可选）"
+        panel.prompt = "选择"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if !runtimeASRPythonPath.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: runtimeASRPythonPath).deletingLastPathComponent()
+        }
+        guard panel.runModal() == .OK, let selected = panel.url else { return }
+        runtimeASRPythonPath = selected.path
+        detectRuntime()
+    }
+
+    func configureRuntime() {
+        let gptRoot = runtimeGPTSoVITSPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let python = runtimePythonPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let asrPython = runtimeASRPythonPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !gptRoot.isEmpty else {
+            alertMessage = "请先选择 GPT-SoVITS 根目录。"
+            return
+        }
+        guard !python.isEmpty else {
+            alertMessage = "请先选择 GPT-SoVITS Python。"
+            return
+        }
+
+        let gptRootURL = URL(fileURLWithPath: gptRoot)
+        let pythonURL = URL(fileURLWithPath: python)
+        let cliURL = gptRootURL.appendingPathComponent("GPT_SoVITS/inference_cli.py")
+        guard FileManager.default.fileExists(atPath: cliURL.path) else {
+            alertMessage = "未找到 GPT_SoVITS/inference_cli.py，请确认选择的是 GPT-SoVITS 根目录。"
+            return
+        }
+        guard FileManager.default.fileExists(atPath: pythonURL.path) else {
+            alertMessage = "Python 路径不存在：\(python)"
+            return
+        }
+
+        let runtimeDir = root.appendingPathComponent("gpt_sovits_runtime")
+        ensureDirectory(runtimeDir)
+        var object: [String: Any] = [
+            "python": python,
+            "runtime_root": gptRoot,
+            "inference_cli": "GPT_SoVITS/inference_cli.py"
+        ]
+        if !asrPython.isEmpty {
+            object["asr_python"] = asrPython
+        }
+        do {
+            let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+            try data.write(to: runtimeDir.appendingPathComponent("engine_config.json"), options: .atomic)
+            runtimeSetupStatus = "已写入配置"
+            status = "运行环境已配置"
+            addLog("已生成 GPT-SoVITS 配置：\(runtimeDir.appendingPathComponent("engine_config.json").path)")
+            detectRuntime()
+        } catch {
+            alertMessage = "写入 engine_config.json 失败：\(error.localizedDescription)"
+        }
+    }
+
+    func detectRuntime() {
+        var items: [RuntimeCheckItem] = []
+        let fm = FileManager.default
+        let configURL = root.appendingPathComponent("gpt_sovits_runtime/engine_config.json")
+
+        if runtimeGPTSoVITSPath.isEmpty || runtimePythonPath.isEmpty {
+            loadRuntimeSettingsFromConfig()
+        }
+
+        let gptRoot = runtimeGPTSoVITSPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let python = runtimePythonPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let asrPython = runtimeASRPythonPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let gptRootURL = URL(fileURLWithPath: gptRoot)
+        let cliURL = gptRootURL.appendingPathComponent("GPT_SoVITS/inference_cli.py")
+
+        items.append(RuntimeCheckItem(
+            title: "engine_config.json",
+            detail: configURL.path,
+            ok: fm.fileExists(atPath: configURL.path)
+        ))
+        items.append(RuntimeCheckItem(
+            title: "GPT-SoVITS 根目录",
+            detail: gptRoot.isEmpty ? "未选择" : gptRoot,
+            ok: !gptRoot.isEmpty && fm.fileExists(atPath: gptRoot)
+        ))
+        items.append(RuntimeCheckItem(
+            title: "inference_cli.py",
+            detail: cliURL.path,
+            ok: !gptRoot.isEmpty && fm.fileExists(atPath: cliURL.path)
+        ))
+        items.append(RuntimeCheckItem(
+            title: "GPT-SoVITS Python",
+            detail: python.isEmpty ? "未选择" : python,
+            ok: !python.isEmpty && fm.fileExists(atPath: python)
+        ))
+
+        if !python.isEmpty && fm.fileExists(atPath: python) {
+            let version = runProcess(executable: python, arguments: ["--version"], currentDirectory: root)
+            items.append(RuntimeCheckItem(
+                title: "Python 可执行性",
+                detail: version.output.trimmingCharacters(in: .whitespacesAndNewlines),
+                ok: version.ok
+            ))
+        }
+
+        if let ffmpeg = findFFmpeg() {
+            items.append(RuntimeCheckItem(title: "ffmpeg", detail: ffmpeg, ok: true))
+        } else {
+            items.append(RuntimeCheckItem(title: "ffmpeg", detail: "未找到，视频/非 WAV 转换会受限", ok: false))
+        }
+
+        if asrPython.isEmpty {
+            items.append(RuntimeCheckItem(title: "ASR Python", detail: "未配置，ASR 草稿标注不可用", ok: false))
+        } else {
+            items.append(RuntimeCheckItem(title: "ASR Python", detail: asrPython, ok: fm.fileExists(atPath: asrPython)))
+        }
+
+        let uvrDir = gptRootURL.appendingPathComponent("tools/uvr5/uvr5_weights")
+        let hasUVRWeights = ((try? fm.contentsOfDirectory(at: uvrDir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [])
+            .contains { ["pth", "ckpt"].contains($0.pathExtension.lowercased()) }
+        items.append(RuntimeCheckItem(
+            title: "UVR/BS-RoFormer 权重",
+            detail: uvrDir.path,
+            ok: !gptRoot.isEmpty && hasUVRWeights
+        ))
+
+        runtimeCheckItems = items
+        let requiredOK = items
+            .filter { ["engine_config.json", "GPT-SoVITS 根目录", "inference_cli.py", "GPT-SoVITS Python", "Python 可执行性"].contains($0.title) }
+            .allSatisfy(\.ok)
+        runtimeSetupStatus = requiredOK ? "核心 TTS 环境可用" : "需要配置"
+    }
+
+    private func loadRuntimeSettingsFromConfig() {
+        guard let engine = loadEngineConfig() else { return }
+        runtimeGPTSoVITSPath = engine.runtimeRoot
+        runtimePythonPath = engine.python
+        runtimeASRPythonPath = engine.asrPython ?? ""
+    }
+
+    private func guessPython(in gptRoot: URL) -> URL? {
+        let candidates = [
+            gptRoot.appendingPathComponent(".venv/bin/python"),
+            gptRoot.appendingPathComponent(".venv-gpt-sovits/bin/python"),
+            gptRoot.appendingPathComponent("venv/bin/python"),
+            gptRoot.appendingPathComponent("env/bin/python")
+        ]
+        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
     private func analyzeAudio(url: URL) throws -> QualityReport {
         let file = try AVAudioFile(forReading: url)
         let format = file.processingFormat
@@ -2011,6 +2212,7 @@ final class VoiceStudioModel: ObservableObject {
 struct ContentView: View {
     @StateObject private var model = VoiceStudioModel()
     @State private var showNewProjectSheet = false
+    @State private var showRuntimeSheet = false
     @State private var newProjectName = ""
     @State private var newProjectVoiceId = ""
 
@@ -2100,6 +2302,14 @@ struct ContentView: View {
             }
             .buttonStyle(PrimaryButtonStyle())
 
+            Button {
+                model.detectRuntime()
+                showRuntimeSheet = true
+            } label: {
+                Label("运行环境", systemImage: "gearshape.2")
+            }
+            .buttonStyle(SecondaryButtonStyle())
+
             // Status
             Label(model.status, systemImage: "record.circle")
                 .foregroundStyle(Color(red: 0.96, green: 0.91, blue: 0.79))
@@ -2139,6 +2349,114 @@ struct ContentView: View {
             .padding(24)
             .frame(width: 360)
             .background(Color(red: 0.72, green: 0.86, blue: 0.92))
+        }
+        .sheet(isPresented: $showRuntimeSheet) {
+            runtimeSetupSheet
+        }
+    }
+
+    private var runtimeSetupSheet: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("运行环境配置")
+                        .font(.title2.bold())
+                    Text("选择本机 GPT-SoVITS 和 Python，自动生成 engine_config.json。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text(model.runtimeSetupStatus)
+                    .font(.footnote.weight(.semibold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(model.runtimeSetupStatus.contains("可用") ? Color.green.opacity(0.18) : Color.orange.opacity(0.18))
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                runtimePathRow(
+                    title: "GPT-SoVITS 根目录",
+                    placeholder: "/path/to/GPT-SoVITS",
+                    text: $model.runtimeGPTSoVITSPath,
+                    buttonTitle: "选择目录",
+                    action: model.chooseGPTSoVITSRoot
+                )
+                runtimePathRow(
+                    title: "GPT-SoVITS Python",
+                    placeholder: "/path/to/GPT-SoVITS/.venv/bin/python",
+                    text: $model.runtimePythonPath,
+                    buttonTitle: "选择 Python",
+                    action: model.chooseRuntimePython
+                )
+                runtimePathRow(
+                    title: "ASR Python（可选）",
+                    placeholder: "/path/to/faster-whisper-venv/bin/python",
+                    text: $model.runtimeASRPythonPath,
+                    buttonTitle: "选择 Python",
+                    action: model.chooseASRPython
+                )
+            }
+
+            HStack {
+                Button("生成配置并检测") { model.configureRuntime() }
+                    .buttonStyle(PrimaryButtonStyle())
+                Button("重新检测") { model.detectRuntime() }
+                Spacer()
+                Button("完成") { showRuntimeSheet = false }
+            }
+
+            Divider()
+
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(model.runtimeCheckItems) { item in
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: item.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                                .foregroundStyle(item.ok ? Color.green : Color.orange)
+                                .frame(width: 20)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.title)
+                                    .font(.footnote.weight(.semibold))
+                                Text(item.detail.isEmpty ? "无详情" : item.detail)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                                    .truncationMode(.middle)
+                            }
+                            Spacer()
+                        }
+                        .padding(8)
+                        .background(Color.white.opacity(0.35))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                }
+            }
+            .frame(height: 210)
+
+            Text("这一步不会下载或安装依赖；它只生成配置并检查当前机器已有的 GPT-SoVITS、ffmpeg、ASR 和分离权重。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(22)
+        .frame(width: 720, height: 620)
+        .background(Color(red: 0.72, green: 0.86, blue: 0.92))
+    }
+
+    private func runtimePathRow(
+        title: String,
+        placeholder: String,
+        text: Binding<String>,
+        buttonTitle: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.footnote.weight(.semibold))
+            HStack {
+                TextField(placeholder, text: text)
+                    .textFieldStyle(.roundedBorder)
+                Button(buttonTitle, action: action)
+            }
         }
     }
 
@@ -2696,6 +3014,18 @@ struct PrimaryButtonStyle: ButtonStyle {
             .padding(.vertical, 10)
             .background(configuration.isPressed ? Color(red: 0.84, green: 0.71, blue: 0.39) : Color(red: 0.95, green: 0.88, blue: 0.68))
             .foregroundStyle(Color(red: 0.12, green: 0.20, blue: 0.26))
+    }
+}
+
+struct SecondaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 14, weight: .semibold))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(configuration.isPressed ? Color.white.opacity(0.18) : Color.white.opacity(0.10))
+            .foregroundStyle(Color(red: 0.93, green: 0.96, blue: 0.98))
+            .overlay(Rectangle().stroke(Color.white.opacity(0.18), lineWidth: 1))
     }
 }
 

@@ -95,7 +95,16 @@ voice_projects/{voice_id}/
 
 ## Configure GPT-SoVITS
 
-Create a local runtime config from the template:
+The app includes a runtime setup panel. Open Voice Studio, click **运行环境** in the sidebar, then:
+
+1. Select your local GPT-SoVITS root directory.
+2. Select the Python executable used by that GPT-SoVITS checkout.
+3. Optionally select the Python executable used for ASR.
+4. Click **生成配置并检测**.
+
+Voice Studio will write `gpt_sovits_runtime/engine_config.json` and check the core runtime files.
+
+For manual setup, create a local runtime config from the template:
 
 ```bash
 cp configs/engine_config.example.json gpt_sovits_runtime/engine_config.json
