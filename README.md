@@ -55,9 +55,21 @@ Download `Voice_Studio-v*.zip` from the [latest release](https://github.com/Jack
 xattr -dr com.apple.quarantine "Voice Studio.app"
 ```
 
-Then right-click `Voice Studio.app` → **Open** (first-launch Gatekeeper bypass). The app will auto-detect GPT-SoVITS, Python, ASR, and ffmpeg, and write `engine_config.json` on launch.
+Then right-click `Voice Studio.app` → **Open** (first-launch Gatekeeper bypass).
 
-If you skip the `xattr` step, the app may silently fail to generate the runtime config.
+#### First-time setup (new users — no existing GPT-SoVITS install)
+
+1. Open the app. The 运行环境 panel shows three buttons.
+2. Click **下载 GPT-SoVITS 模型 (~5.7GB)** — downloads source code + pretrained weights + G2P + UVR5
+3. Click **安装 Python 依赖** — creates `.venv` in `external/GPT-SoVITS/` and installs torch + requirements
+4. Click **安装 ASR 环境** — creates `.venv-asr` in `external/asr/` with faster-whisper
+5. After all three show green checkmarks, click **生成配置并检测** — writes `engine_config.json`
+
+You're now ready to train and generate TTS.
+
+#### Users with existing GPT-SoVITS install
+
+The app auto-detects GPT-SoVITS in common locations (Desktop, home, sibling directories). Green checkmarks will already show for what's detected. Use the buttons only for missing pieces.
 
 ### Option B: Build from source
 

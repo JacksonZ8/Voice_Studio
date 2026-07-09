@@ -42,9 +42,17 @@ echo "[setup] Upgrading pip..."
 "$PIP" install --upgrade pip --quiet 2>&1 | tail -1
 echo "SETUP_PROGRESS=0.15"
 
-# ── Phase 3: Install torch (CPU for universal compatibility) ──
+# ── Phase 3: Install torch ──
 echo "[setup] Installing PyTorch (this may take a few minutes)..."
-"$PIP" install torch torchaudio --index-url https://download.pytorch.org/whl/cpu --quiet 2>&1 | tail -3
+if [ "$(uname -m)" = "arm64" ]; then
+  # Apple Silicon — use MPS-capable build (default index)
+  echo "[setup] Apple Silicon detected — installing MPS-capable PyTorch"
+  "$PIP" install torch torchaudio --quiet 2>&1 | tail -3
+else
+  # Intel Mac — use CPU-only for compatibility
+  echo "[setup] Intel Mac detected — installing CPU-only PyTorch"
+  "$PIP" install torch torchaudio --index-url https://download.pytorch.org/whl/cpu --quiet 2>&1 | tail -3
+fi
 echo "SETUP_PROGRESS=0.35"
 
 # ── Phase 4: Install GPT-SoVITS requirements ──

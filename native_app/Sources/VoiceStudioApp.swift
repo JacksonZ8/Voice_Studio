@@ -224,10 +224,14 @@ final class VoiceStudioModel: ObservableObject {
     // One-click download / install
     @Published var isDownloadingModels = false
     @Published var isInstallingDeps = false
+    @Published var isInstallingASR = false
     @Published var downloadProgress = 0.0
     @Published var downloadStatusLabel = ""
     @Published var installProgress = 0.0
     @Published var installStatusLabel = ""
+
+    /// True when any install operation is in progress (deps or ASR).
+    var isAnyInstalling: Bool { isInstallingDeps || isInstallingASR }
 
     // Project discovery
     @Published var discoveredProjects: [ProjectMeta] = []
@@ -1979,37 +1983,38 @@ final class VoiceStudioModel: ObservableObject {
                 self.addLog(String(line.dropFirst(0)))
             }
         }, completion: { [weak self] ok, output in
-            self?.isInstallingDeps = false
+            guard let self else { return }
+            self.isInstallingDeps = false
             if ok {
-                self?.installProgress = 1.0
-                self?.installStatusLabel = "环境就绪"
-                self?.addLog("Python 依赖安装完成")
+                self.installProgress = 1.0
+                self.installStatusLabel = "环境就绪"
+                self.addLog("Python 依赖安装完成")
                 // Update runtime paths
-                let gptRootPath = self?.root.appendingPathComponent("external/GPT-SoVITS").path ?? ""
+                let gptRootPath = self.root.appendingPathComponent("external/GPT-SoVITS").path
                 let pythonPath = "\(gptRootPath)/.venv/bin/python"
                 if FileManager.default.fileExists(atPath: pythonPath) {
-                    self?.runtimeGPTSoVITSPath = gptRootPath
-                    self?.runtimePythonPath = pythonPath
-                    self?.autoWriteEngineConfig()
+                    self.runtimeGPTSoVITSPath = gptRootPath
+                    self.runtimePythonPath = pythonPath
+                    self.autoWriteEngineConfig()
                 }
-                self?.detectRuntime()
+                self.detectRuntime()
             } else {
-                self?.alertMessage = "依赖安装失败。\n\n\(output)"
-                self?.addLog("依赖安装失败")
+                self.alertMessage = "依赖安装失败。\n\n\(output)"
+                self.addLog("依赖安装失败")
             }
         })
     }
 
     /// Install faster-whisper into a dedicated ASR venv.
     func installASR() {
-        guard !isInstallingDeps else { return }
+        guard !isInstallingASR, !isInstallingDeps else { return }
         let script = root.appendingPathComponent("scripts/setup_asr.sh")
         guard FileManager.default.fileExists(atPath: script.path) else {
             alertMessage = "缺少 ASR 安装脚本：\(script.path)"
             return
         }
 
-        isInstallingDeps = true
+        isInstallingASR = true
         installProgress = 0.0
         installStatusLabel = "安装 ASR 环境..."
         addLog("开始安装 ASR 环境（faster-whisper）...")
@@ -2033,20 +2038,21 @@ final class VoiceStudioModel: ObservableObject {
                 self.addLog(String(line.dropFirst(0)))
             }
         }, completion: { [weak self] ok, output in
-            self?.isInstallingDeps = false
+            guard let self else { return }
+            self.isInstallingASR = false
             if ok {
-                self?.installProgress = 1.0
-                self?.installStatusLabel = "ASR 就绪"
-                let asrPython = self!.root.appendingPathComponent("external/asr/.venv-asr/bin/python").path
+                self.installProgress = 1.0
+                self.installStatusLabel = "ASR 就绪"
+                let asrPython = self.root.appendingPathComponent("external/asr/.venv-asr/bin/python").path
                 if FileManager.default.fileExists(atPath: asrPython) {
-                    self?.runtimeASRPythonPath = asrPython
-                    self?.autoWriteEngineConfig()
+                    self.runtimeASRPythonPath = asrPython
+                    self.autoWriteEngineConfig()
                 }
-                self?.addLog("ASR 环境安装完成")
-                self?.detectRuntime()
+                self.addLog("ASR 环境安装完成")
+                self.detectRuntime()
             } else {
-                self?.alertMessage = "ASR 安装失败。\n\n\(output)"
-                self?.addLog("ASR 安装失败")
+                self.alertMessage = "ASR 安装失败。\n\n\(output)"
+                self.addLog("ASR 安装失败")
             }
         })
     }
@@ -2223,7 +2229,7 @@ final class VoiceStudioModel: ObservableObject {
             return guessed.path
         }
 
-        let venvURL = gptRootURL.appendingPathComponent(".venv-voice-studio")
+        let venvURL = gptRootURL.appendingPathComponent(".venv")
         let pythonURL = venvURL.appendingPathComponent("bin/python")
         if FileManager.default.fileExists(atPath: pythonURL.path) {
             return pythonURL.path
@@ -2459,9 +2465,20 @@ final class VoiceStudioModel: ObservableObject {
     }
 
     private func findFFmpeg() -> String? {
-        ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"].first {
-            FileManager.default.fileExists(atPath: $0)
+        // 1. Hardcoded common paths first (fast)
+        let hardcoded = ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]
+        if let found = hardcoded.first(where: { FileManager.default.fileExists(atPath: $0) }) {
+            return found
         }
+        // 2. Search PATH (handles MacPorts, custom installs, conda, etc.)
+        let pathDirs = (ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin").split(separator: ":").map(String.init)
+        for dir in pathDirs {
+            let candidate = "\(dir)/ffmpeg"
+            if FileManager.default.fileExists(atPath: candidate) {
+                return candidate
+            }
+        }
+        return nil
     }
 
     private func runProcess(executable: String, arguments: [String], currentDirectory: URL) -> (ok: Bool, output: String) {
@@ -2830,9 +2847,11 @@ struct ContentView: View {
                 Spacer()
                 Text(model.runtimeSetupStatus)
                     .font(.footnote.weight(.semibold))
+                    .foregroundStyle(model.runtimeSetupStatus.contains("可用") ? Color.green : Color.orange)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(model.runtimeSetupStatus.contains("可用") ? Color.green.opacity(0.18) : Color.orange.opacity(0.18))
+                    .background((model.runtimeSetupStatus.contains("可用") ? Color.green : Color.orange).opacity(0.15))
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
             }
 
             VStack(alignment: .leading, spacing: 10) {
@@ -2846,8 +2865,8 @@ struct ContentView: View {
                 )
                 runtimePathRow(
                     title: "2. GPT-SoVITS Python（必选）",
-                    help: "给训练和 TTS 推理使用。通常不用手选：点击“生成配置并检测”时，App 会在 GPT-SoVITS 根目录自动创建 .venv-voice-studio/bin/python。",
-                    placeholder: "/path/to/GPT-SoVITS/.venv-voice-studio/bin/python",
+                    help: "给训练和 TTS 推理使用。通常不用手选：点击「生成配置并检测」时，App 会在 GPT-SoVITS 根目录自动创建 .venv/bin/python。",
+                    placeholder: "/path/to/GPT-SoVITS/.venv/bin/python",
                     text: $model.runtimePythonPath,
                     buttonTitle: "选择 Python",
                     action: model.chooseRuntimePython
@@ -2865,34 +2884,49 @@ struct ContentView: View {
             HStack {
                 Button(model.isCreatingRuntimeVenv ? "创建 venv 中..." : "生成配置并检测") { model.configureRuntime() }
                     .buttonStyle(PrimaryButtonStyle())
-                    .disabled(model.isCreatingRuntimeVenv || model.isDownloadingModels || model.isInstallingDeps)
-                Button("仅创建 venv") { model.createRuntimeVenv() }
-                    .disabled(model.isCreatingRuntimeVenv || model.isDownloadingModels || model.isInstallingDeps)
+                    .disabled(model.isCreatingRuntimeVenv || model.isDownloadingModels || model.isAnyInstalling)
                 Button("重新检测") { model.detectRuntime() }
+                    .buttonStyle(SheetSecondaryButtonStyle())
                 Spacer()
                 Button("完成") { showRuntimeSheet = false }
+                    .buttonStyle(SheetSecondaryButtonStyle())
             }
+
+            Divider().overlay(Color.white.opacity(0.3))
 
             // ── One-click download & install ──
             // Detect local state to show appropriate button labels
             let extGptRoot = model.root.appendingPathComponent("external/GPT-SoVITS")
             let extASR = model.root.appendingPathComponent("external/asr/.venv-asr/bin/python")
             let fm = FileManager.default
-            let modelsReady = fm.fileExists(atPath: extGptRoot.appendingPathComponent("GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large/pytorch_model.bin").path)
+            // Check both source code AND model weights are present
+            let sourceReady = fm.fileExists(atPath: extGptRoot.appendingPathComponent("GPT_SoVITS/inference_cli.py").path)
+                && fm.fileExists(atPath: extGptRoot.appendingPathComponent("requirements.txt").path)
+            let weightsReady = fm.fileExists(atPath: extGptRoot.appendingPathComponent("GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large/pytorch_model.bin").path)
                 && fm.fileExists(atPath: extGptRoot.appendingPathComponent("GPT_SoVITS/pretrained_models/chinese-hubert-base/pytorch_model.bin").path)
                 && fm.fileExists(atPath: extGptRoot.appendingPathComponent("GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s2G2333k.pth").path)
+            let modelsReady = sourceReady && weightsReady
             let depsReady = fm.fileExists(atPath: extGptRoot.appendingPathComponent(".venv/bin/python").path)
             let asrReady = fm.fileExists(atPath: extASR.path)
+
+            // ── One-click setup section ──
+            Text("一键安装")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
 
             VStack(spacing: 8) {
                 if model.isDownloadingModels {
                     VStack(spacing: 4) {
-                        ProgressView(value: model.downloadProgress).frame(width: 200)
+                        ProgressView(value: model.downloadProgress)
+                            .tint(Color(red: 0.95, green: 0.88, blue: 0.68))
+                            .frame(width: 220)
                         Text(model.downloadStatusLabel).font(.footnote).foregroundStyle(.secondary)
                     }
-                } else if model.isInstallingDeps {
+                } else if model.isAnyInstalling {
                     VStack(spacing: 4) {
-                        ProgressView(value: model.installProgress).frame(width: 200)
+                        ProgressView(value: model.installProgress)
+                            .tint(Color(red: 0.95, green: 0.88, blue: 0.68))
+                            .frame(width: 220)
                         Text(model.installStatusLabel).font(.footnote).foregroundStyle(.secondary)
                     }
                 } else {
@@ -2901,25 +2935,27 @@ struct ContentView: View {
                             .foregroundStyle(.green)
                             .font(.footnote)
                     } else {
-                        Button(model.isDownloadingModels ? "下载中..." : "下载 GPT-SoVITS 模型 (~5.7GB)") { model.downloadModels() }
-                            .buttonStyle(PrimaryButtonStyle())
-                            .disabled(model.isDownloadingModels || model.isInstallingDeps)
+                        Button("下载 GPT-SoVITS 模型 (~5.7GB)") { model.downloadModels() }
+                            .buttonStyle(DownloadButtonStyle())
+                            .disabled(model.isDownloadingModels || model.isAnyInstalling)
                     }
                     if depsReady {
                         Label("Python 依赖已安装", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)
                             .font(.footnote)
                     } else {
-                        Button(model.isInstallingDeps ? "安装中..." : "安装 Python 依赖") { model.installDependencies() }
-                            .disabled(model.isDownloadingModels || model.isInstallingDeps)
+                        Button("安装 Python 依赖") { model.installDependencies() }
+                            .buttonStyle(DownloadButtonStyle())
+                            .disabled(model.isDownloadingModels || model.isAnyInstalling)
                     }
                     if asrReady {
                         Label("ASR 环境已就绪", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)
                             .font(.footnote)
                     } else {
-                        Button(model.isInstallingDeps ? "安装中..." : "安装 ASR 环境 (faster-whisper)") { model.installASR() }
-                            .disabled(model.isDownloadingModels || model.isInstallingDeps)
+                        Button("安装 ASR 环境 (faster-whisper)") { model.installASR() }
+                            .buttonStyle(DownloadButtonStyle())
+                            .disabled(model.isDownloadingModels || model.isAnyInstalling)
                     }
                 }
             }
@@ -2946,14 +2982,14 @@ struct ContentView: View {
                             Spacer()
                         }
                         .padding(8)
-                        .background(Color.white.opacity(0.35))
+                        .background(Color.white.opacity(0.55))
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                     }
                 }
             }
             .frame(height: 210)
 
-            Text("简单理解：只要先选 GPT-SoVITS 根目录，App 会自动创建 TTS/训练用的 Python venv；ASR Python 可选，只影响自动生成文本标注。依赖包仍按 GPT-SoVITS 项目要求安装。")
+            Text("新用户只需依次点击上方三个按钮即可完成全部环境安装。已有 GPT-SoVITS 的用户可手动选择路径后点击「生成配置并检测」。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -2981,10 +3017,11 @@ struct ContentView: View {
                 TextField(placeholder, text: text)
                     .textFieldStyle(.roundedBorder)
                 Button(buttonTitle, action: action)
+                    .buttonStyle(CompactButtonStyle())
             }
         }
         .padding(8)
-        .background(Color.white.opacity(0.16))
+        .background(Color.white.opacity(0.50))
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
@@ -3554,6 +3591,44 @@ struct SecondaryButtonStyle: ButtonStyle {
             .background(configuration.isPressed ? Color.white.opacity(0.18) : Color.white.opacity(0.10))
             .foregroundStyle(Color(red: 0.93, green: 0.96, blue: 0.98))
             .overlay(Rectangle().stroke(Color.white.opacity(0.18), lineWidth: 1))
+    }
+}
+
+struct CompactButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12, weight: .medium))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(configuration.isPressed ? Color.white.opacity(0.25) : Color.white.opacity(0.15))
+            .foregroundStyle(Color(red: 0.12, green: 0.20, blue: 0.26))
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+    }
+}
+
+struct DownloadButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .bold))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(configuration.isPressed ? Color(red: 0.84, green: 0.71, blue: 0.39) : Color(red: 0.95, green: 0.88, blue: 0.68))
+            .foregroundStyle(Color(red: 0.12, green: 0.20, blue: 0.26))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+/// Secondary button for use on light-colored sheets (runtime panel).
+/// Dark text on translucent background — readable on light blue.
+struct SheetSecondaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .semibold))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(configuration.isPressed ? Color.black.opacity(0.12) : Color.black.opacity(0.06))
+            .foregroundStyle(Color(red: 0.12, green: 0.20, blue: 0.26))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 }
 

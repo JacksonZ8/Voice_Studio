@@ -124,7 +124,6 @@ def prepare_runtime_links(external_root: Path) -> None:
         if link.exists() or link.is_symlink():
             continue
         link.symlink_to(target, target_is_directory=target.is_dir())
-        link.symlink_to(target, target_is_directory=target.is_dir())
 
 
 def write_training_configs(
@@ -322,7 +321,14 @@ def main() -> None:
     # Load engine
     engine = load_engine()
     python = Path(engine["python"])
-    external_root = python.parents[2]  # .venv/bin/python → GPT-SoVITS root
+    # Use explicit gpt_sovits_root from config — never infer from python path.
+    # python.parents[2] is wrong for system/homebrew Python and would resolve to "/".
+    external_root = Path(engine.get("gpt_sovits_root") or engine.get("runtime_root") or "")
+    if not external_root.exists():
+        raise SystemExit(
+            f"GPT-SoVITS root not found: {external_root}\n"
+            f"Please set gpt_sovits_root in {ENGINE_CONFIG} to the directory containing GPT_SoVITS/"
+        )
     prepare_runtime_links(external_root)
 
     # Project structure
