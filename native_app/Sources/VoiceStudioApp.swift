@@ -1091,7 +1091,7 @@ final class VoiceStudioModel: ObservableObject {
             root.appendingPathComponent("scripts/run_asr.py").path,
             "--input-dir", slicesURL.path,
             "--output-json", outputJSON.path,
-            "--model", "small", "--language", "zh"
+            "--model", "small", "--language", "zh", "--device", "cpu"
         ]
         var env = ProcessInfo.processInfo.environment
         env["PYTHONUNBUFFERED"] = "1"
@@ -1236,7 +1236,7 @@ final class VoiceStudioModel: ObservableObject {
             root.appendingPathComponent("scripts/run_asr.py").path,
             "--input-dir", slicesURL.path,
             "--output-json", outputJSON.path,
-            "--model", "small", "--language", "zh"
+            "--model", "small", "--language", "zh", "--device", "cpu"
         ]
         var env = ProcessInfo.processInfo.environment
         env["PYTHONUNBUFFERED"] = "1"
@@ -1303,7 +1303,8 @@ final class VoiceStudioModel: ObservableObject {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: engine.python)
         process.currentDirectoryURL = root
-        process.arguments = [script.path, "--project", currentProjectURL.path, "--exp-name", "voice_studio_\(currentVoiceId)", "--preset", "standard"]
+        let trainingDevice = detectTrainingDevice()
+        process.arguments = [script.path, "--project", currentProjectURL.path, "--exp-name", "voice_studio_\(currentVoiceId)", "--preset", "standard", "--device", trainingDevice]
         var env = ProcessInfo.processInfo.environment
         env["PYTHONUNBUFFERED"] = "1"
         process.environment = env
@@ -1607,6 +1608,10 @@ final class VoiceStudioModel: ObservableObject {
         environment["NUMBA_CACHE_DIR"] = cacheDir.path
         environment["XDG_CACHE_HOME"] = cacheDir.path
         environment["TOKENIZERS_PARALLELISM"] = "false"
+        // Avoid CUDA errors on machines without NVIDIA GPU
+        if environment["CUDA_VISIBLE_DEVICES"] == nil {
+            environment["CUDA_VISIBLE_DEVICES"] = ""
+        }
         process.environment = environment
 
         let pipe = Pipe()
@@ -1764,6 +1769,29 @@ final class VoiceStudioModel: ObservableObject {
             inferenceCLI: object["inference_cli"] as? String ?? "GPT_SoVITS/inference_cli.py",
             asrPython: object["asr_python"] as? String
         )
+    }
+
+    /// Detect the best available training device by asking PyTorch.
+    /// Results are cached so we only run the Python subprocess once.
+    private var _cachedTrainingDevice: String?
+    func detectTrainingDevice() -> String {
+        if let cached = _cachedTrainingDevice { return cached }
+        guard let engine = loadEngineConfig() else { return "cpu" }
+        let pythonURL = URL(fileURLWithPath: engine.python)
+        guard FileManager.default.fileExists(atPath: pythonURL.path) else { return "cpu" }
+
+        let checkScript = "import torch; "
+            + "print('cuda' if torch.cuda.is_available() "
+            + "else 'mps' if torch.backends.mps.is_available() "
+            + "else 'cpu')"
+
+        let result = runProcess(executable: engine.python,
+                                arguments: ["-c", checkScript],
+                                currentDirectory: root)
+        let device = result.ok ? result.output.trimmingCharacters(in: .whitespacesAndNewlines) : "cpu"
+        _cachedTrainingDevice = (["cuda", "mps", "cpu"].contains(device) ? device : "cpu")
+        addLog("检测到训练设备：\(_cachedTrainingDevice ?? "cpu")")
+        return _cachedTrainingDevice ?? "cpu"
     }
 
     func chooseGPTSoVITSRoot() {

@@ -32,6 +32,22 @@ from pathlib import Path
 
 import yaml
 
+
+# ── device detection ────────────────────────────────────────────
+
+
+def detect_device() -> str:
+    """Auto-detect the best available accelerator. Returns 'cuda', 'mps', or 'cpu'."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda"
+        if torch.backends.mps.is_available():
+            return "mps"
+    except ImportError:
+        pass
+    return "cpu"
+
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / "gpt_sovits_runtime"
 ENGINE_CONFIG = RUNTIME / "engine_config.json"
@@ -127,7 +143,8 @@ def prepare_runtime_links(external_root: Path) -> None:
 
 
 def write_training_configs(
-    exp_name: str, exp_dir: Path, sovits_epochs: int, gpt_epochs: int, sovits_batch_size: int, gpt_batch_size: int
+    exp_name: str, exp_dir: Path, sovits_epochs: int, gpt_epochs: int, sovits_batch_size: int, gpt_batch_size: int,
+    use_cuda: bool = False,
 ) -> tuple[Path, Path]:
     """Write s2.json (SoVITS) and s1.yaml (GPT) configs with the given params."""
     temp_dir = RUNTIME / "TEMP"
@@ -137,7 +154,7 @@ def write_training_configs(
 
     # ── SoVITS config (s2.json) ──
     s2 = json.loads((RUNTIME / "GPT_SoVITS/configs/s2.json").read_text(encoding="utf-8"))
-    s2["train"]["fp16_run"] = False
+    s2["train"]["fp16_run"] = use_cuda
     s2["train"]["batch_size"] = sovits_batch_size
     s2["train"]["epochs"] = sovits_epochs
     s2["train"]["save_every_epoch"] = max(1, sovits_epochs // 3)
@@ -145,7 +162,7 @@ def write_training_configs(
     s2["train"]["if_save_every_weights"] = True
     s2["train"]["pretrained_s2G"] = "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s2G2333k.pth"
     s2["train"]["pretrained_s2D"] = "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s2D2333k.pth"
-    s2["train"]["gpu_numbers"] = "0"
+    s2["train"]["gpu_numbers"] = "0" if use_cuda else ""
     s2["train"]["grad_ckpt"] = False
     s2["data"]["exp_dir"] = str(exp_dir)
     s2["s2_ckpt_dir"] = str(exp_dir)
@@ -305,7 +322,14 @@ def main() -> None:
     parser.add_argument("--sovits-epochs", type=int, default=None, help="SoVITS epochs (overrides preset)")
     parser.add_argument("--gpt-epochs", type=int, default=None, help="GPT epochs (overrides preset)")
     parser.add_argument("--batch-size", type=int, default=None, help="Batch size (overrides preset)")
+    parser.add_argument("--device", choices=["auto", "cpu", "cuda", "mps"], default="auto",
+                        help="Training device (auto=detect, cpu, cuda, mps)")
     args = parser.parse_args()
+
+    # Resolve device
+    device = args.device if args.device != "auto" else detect_device()
+    use_cuda = (device == "cuda")
+    print(f"[train] Device: {device} | CUDA: {use_cuda}", flush=True)
 
     # Resolve preset
     preset = PRESETS.get(args.preset, PRESETS["standard"])
@@ -314,6 +338,11 @@ def main() -> None:
     batch_size = args.batch_size if args.batch_size is not None else preset["batch_size"]
     print(f"[train] Preset: {args.preset} — {preset['description']}", flush=True)
     print(f"[train] SoVITS epochs={sovits_epochs}, GPT epochs={gpt_epochs}, batch_size={batch_size}", flush=True)
+
+    # CPU training: halve batch_size to avoid OOM on memory-constrained machines
+    if not use_cuda:
+        batch_size = max(1, batch_size // 2)
+        print(f"[train] CPU mode: batch_size reduced to {batch_size}", flush=True)
 
     project_dir = Path(args.project).expanduser().resolve()
     require(project_dir / "project.json", "project.json")
@@ -435,7 +464,7 @@ def main() -> None:
 
     # ── Step 4/6: Write training configs ──
     print("\n[4/6] Writing training configs...", flush=True)
-    s2_cfg, s1_cfg = write_training_configs(exp_name, exp_dir, sovits_epochs, gpt_epochs, batch_size, batch_size)
+    s2_cfg, s1_cfg = write_training_configs(exp_name, exp_dir, sovits_epochs, gpt_epochs, batch_size, batch_size, use_cuda=use_cuda)
     print("TRAINING_PROGRESS=0.15", flush=True)
 
     # ── Step 5/6: Train SoVITS ──
@@ -445,7 +474,8 @@ def main() -> None:
 
     # ── Step 6/6: Train GPT ──
     print(f"\n[6/6] Training GPT ({gpt_epochs} epochs)...", flush=True)
-    env["_CUDA_VISIBLE_DEVICES"] = "0"
+    if use_cuda:
+        env["_CUDA_VISIBLE_DEVICES"] = "0"
     env["hz"] = "25hz"
     run([str(python), "-s", "smoke_overrides/s1_train.py", "--config_file", str(s1_cfg)], cwd=RUNTIME, env=env)
     print("TRAINING_PROGRESS=0.97", flush=True)

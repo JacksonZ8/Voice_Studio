@@ -1,14 +1,15 @@
 # modified from https://github.com/feng-yufei/shared_debugging_code/blob/main/train_t2s.py
 import os
 
-if "_CUDA_VISIBLE_DEVICES" in os.environ:
+import torch
+
+if "_CUDA_VISIBLE_DEVICES" in os.environ and torch.cuda.is_available():
     os.environ["CUDA_VISIBLE_DEVICES"] = os.environ["_CUDA_VISIBLE_DEVICES"]
 import argparse
 import logging
 import platform
 from pathlib import Path
 
-import torch
 from AR.data.data_module import Text2SemanticDataModule
 from AR.models.t2s_lightning_module import Text2SemanticLightningModule
 from AR.utils.io import load_yaml_config
