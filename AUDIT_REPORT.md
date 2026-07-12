@@ -1,16 +1,18 @@
-# Voice Studio v0.2.3 — 全面审查报告
+# Voice Studio v1.0.1 — 审查报告
+
+> 审查日期: 2026-07-09 → 修复: v1.0.0 → UVR 补丁: v1.0.1
 
 ## 审查范围
 
-- `native_app/Sources/VoiceStudioApp.swift` (3594 行)
-- `scripts/download_models.sh` (126 行)
-- `scripts/setup_environment.sh` (69 行)
-- `scripts/setup_asr.sh` (53 行)
-- `scripts/run_training.py` (467 行)
-- `scripts/run_separation.py` (146 行)
-- `scripts/run_slicing.py` (313 行)
-- `scripts/run_asr.py` (81 行)
-- `build_app.sh` (110 行)
+- `native_app/Sources/VoiceStudioApp.swift` (~3700 行)
+- `scripts/download_models.sh` → 重写
+- `scripts/setup_environment.sh`
+- `scripts/setup_asr.sh`
+- `scripts/run_training.py`
+- `scripts/run_separation.py` → 修复
+- `scripts/run_slicing.py`
+- `scripts/run_asr.py`
+- `build_app.sh`
 - 所有配置文件、.gitignore、README
 
 ---

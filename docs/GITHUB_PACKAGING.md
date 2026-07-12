@@ -1,59 +1,53 @@
 # GitHub Packaging Plan
 
-This repository should contain the Voice Studio application source and reproducible setup files only. Runtime data, model weights, generated audio, caches, and trained voice projects should stay local or be distributed separately.
+This repository contains the Voice Studio application source and reproducible setup files only. Runtime data, model weights, generated audio, caches, and trained voice projects stay local or are downloaded at runtime.
 
 ## Commit To Git
 
-- `native_app/`
-- `scripts/`
-- `configs/engine_config.example.json`
-- `docs/`
-- `README.md`
-- `build_app.sh`
-- `.gitignore`
-- `training_voice_assets/README.md`
-- `training_voice_assets/configs/`
-- `training_voice_assets/docs/`
+- `native_app/` — SwiftUI app source
+- `scripts/` — Python training/ASR/slicing/separation scripts + bash setup scripts
+  - `download_models.sh` — one-click model + source download
+  - `setup_environment.sh` — Python venv + dependencies
+  - `setup_asr.sh` — faster-whisper ASR environment
+  - `run_training.py`, `run_separation.py`, `run_asr.py`, `run_slicing.py`
+- `gpt_sovits_runtime/smoke_overrides/` — training override modules
+- `configs/engine_config.example.json` — config template for auto-detection seed
+- `docs/` — packaging and integration notes
+- `training_voice_assets/` — voice package metadata (README, configs/, docs/)
+- `external/` — empty placeholder (models downloaded at runtime)
+- `README.md`, `build_app.sh`, `.gitignore`
 
 ## Keep Out Of Git
 
-- `Voice Studio.app/`
-- `voice_projects/`
-- `gpt_sovits_runtime/engine_config.json`
-- `gpt_sovits_runtime/cache/`
-- `gpt_sovits_runtime/logs/`
-- `gpt_sovits_runtime/TEMP/`
-- `gpt_sovits_runtime/GPT_weights_v2/`
-- `gpt_sovits_runtime/SoVITS_weights_v2/`
-- `gpt_sovits_runtime/tools/uvr5/uvr5_weights/*.pth`
-- `training_voice_assets/reference/`
-- `training_voice_assets/samples/`
-- `training_voice_assets/weights/`
-- `ONE_CLICK_TTS_TRAINER_PLAN.md`
-- `agent_handoff/`
-- local test media such as `测试语音.mp3`
+- `Voice Studio.app/` — built app binary
+- `voice_projects/` — local project data
+- `external/GPT-SoVITS/` — downloaded source + models (~5.7GB)
+- `gpt_sovits_runtime/engine_config.json` — local config with absolute paths
+- `gpt_sovits_runtime/{cache,logs,TEMP,GPT_weights_v2,SoVITS_weights_v2}/`
+- `gpt_sovits_runtime/{GPT_SoVITS,tools,configs,config.py,feature_extractor,text}` — symlinks
+- `training_voice_assets/{reference,samples,weights}/`
+- `Voice_Studio-v*.zip` — release artifacts
+- Legacy planning docs and local test media
 
 ## After Cloning
 
-1. Build the macOS app:
+1. Build the app:
 
    ```bash
    ./build_app.sh
    ```
 
-2. Create a local GPT-SoVITS runtime config:
+2. Open `Voice Studio.app` — the app auto-detects GPT-SoVITS, writes `engine_config.json` on launch.
 
-   ```bash
-   cp configs/engine_config.example.json gpt_sovits_runtime/engine_config.json
-   ```
+3. New users: open 运行环境, click the three buttons to download models, install dependencies, and set up ASR.
 
-3. Edit `gpt_sovits_runtime/engine_config.json` so it points to the local GPT-SoVITS Python environment and runtime directory.
+4. Existing GPT-SoVITS users: auto-detection finds your installation. Use the runtime panel to override paths if needed.
 
-4. Put local model weights and voice packages back into the ignored runtime/data directories as needed.
+## Release Flow
 
-## Recommended GitHub Flow
+```bash
+./build_app.sh --release          # builds app + creates Voice_Studio-vX.Y.Z.zip
+gh release create vX.Y.Z --title "..." --notes "..." Voice_Studio-vX.Y.Z.zip
+```
 
-1. Start with a private repository.
-2. Push only the source commit.
-3. Check GitHub's file list before making the repository public.
-4. If a downloadable app is needed, upload `Voice Studio.app.zip` as a GitHub Release asset instead of committing the `.app` bundle.
+The release zip includes the app bundle + all scripts + smoke_overrides + config template + empty external/ directory. Users extract, remove quarantine (`xattr -dr`), and launch.
